@@ -23,6 +23,8 @@ jobs:
       - run: |
           set -o pipefail
           python scripts/fetch.py 2>&1 | tee fetch.log || { echo "::error title=fetch.py::$(tail -c 1500 fetch.log | tr '\n' ' ')"; exit 1; }
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       - run: python scripts/screen.py
       - run: |
           git config user.name "github-actions"

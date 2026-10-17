@@ -12,7 +12,7 @@ scripts/screen.py 지표를 계산해 docs/data.json 생성
 처음 설정
 1. Settings > Pages에서 Source를 Deploy from a branch, 브랜치 main, 폴더 /docs로 지정합니다.
 2. Actions 탭 > daily-screen > Run workflow로 첫 실행을 합니다. 첫 실행은 업종코드를 회사마다 조회하느라 시간이 더 걸리고, 이후에는 저장해 둔 값을 씁니다.
-인증키는 필요 없습니다.
+SEC는 실제 연락처가 담긴 신원 정보를 요구합니다. Settings > Secrets and variables > Actions에서 SEC_USER_AGENT라는 시크릿을 만들고, 값에 영문 이름과 본인 이메일을 띄어 써서 넣습니다(예: Hong Gildong you@gmail.com). GitHub 익명 이메일(noreply)은 거부됩니다.
 
 기본 필터 (화면에서 조절)
 일반 기업: 3년 평균 ROE 15% 이상, 부채비율 50% 이하, 10년 연속 영업흑자, PER이 5년 중앙값보다 낮음

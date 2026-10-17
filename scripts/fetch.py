@@ -13,8 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from lib import extract, shares_out, price_metrics
 
 # SEC는 연락처가 담긴 User-Agent를 요구한다
-UA = {'User-Agent': os.environ.get('SEC_USER_AGENT',
-                                   'screening github.com/Hunjeh404/screening Hunjeh404@users.noreply.github.com')}
+UA = {'User-Agent': os.environ.get('SEC_USER_AGENT') or sys.exit('SEC_USER_AGENT 시크릿이 없습니다 (예: Hong Gildong you@gmail.com)')}
 CACHE = 'data/cache'
 TMP = 'data/tmp'
 os.makedirs(CACHE, exist_ok=True)
