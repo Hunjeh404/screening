@@ -1,14 +1,14 @@
 name: daily-screen
 on:
   schedule:
-    - cron: '47 22 * * 1-5'   # 화~토 07:47 (한국시간), 미국 장 마감 후
+    - cron: '47 22 * * 1-5'   # 화~토 07:47 (한국시간), 미국 장 마감 후 (한국은 전날 종가 기준)
   workflow_dispatch:
 permissions:
   contents: write
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,9 +27,20 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       - run: python scripts/screen.py
       - run: python scripts/sectors.py
+      # 한국: DART 키가 없거나 실패해도 미국 결과는 올라가도록 따로 둔다
+      - id: kr
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python scripts/fetch_kr.py 2>&1 | tee fetch_kr.log || { echo "::error title=fetch_kr.py::$(tail -c 1500 fetch_kr.log | tr '\n' ' ')"; exit 1; }
+          python scripts/screen_kr.py
+          python scripts/sectors.py data/cache/kr docs/data_kr.json
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
       - run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add docs/data.json
+          if [ -f docs/data_kr.json ]; then git add docs/data_kr.json; fi
           git diff --cached --quiet || git commit -m "data: $(date +%F)"
           git push

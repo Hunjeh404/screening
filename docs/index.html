@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>미국 실적 신고가 스크리너</title>
+<title>실적 신고가 스크리너</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -24,6 +24,9 @@ details.filters summary{cursor:pointer;padding:10px 0;font-weight:600}
 .row input[type=number]{width:84px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:500 14px 'IBM Plex Mono',monospace;text-align:right}
 .row input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent)}
 .note{color:var(--sub);font-size:12px;margin:2px 0 0}
+.tabs{display:flex;gap:6px;margin:14px 0 0}
+.tabs button{flex:1;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:10px;padding:10px;font:600 15px 'IBM Plex Sans KR',sans-serif;cursor:pointer}
+.tabs button.on{color:var(--bg);background:var(--accent);border-color:var(--accent)}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 12px}
 .bar input,.bar select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:inherit}
 .bar input{flex:1;min-width:140px}
@@ -53,8 +56,9 @@ svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
 </head>
 <body>
 <div class="wrap">
-  <h1>미국 실적 신고가 스크리너</h1>
-  <div class="meta" id="meta">불러오는 중…</div>
+  <h1>실적 신고가 스크리너</h1>
+  <div class="tabs"><button id="tabUS" class="on" onclick="load('us')">미국</button><button id="tabKR" onclick="load('kr')">한국</button></div>
+  <div class="meta" id="meta" style="margin-top:10px">불러오는 중…</div>
   <div id="banner"></div>
 
   <details class="filters" open>
@@ -68,11 +72,11 @@ svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
         <h3>일반 기업</h3>
         <div class="row">3년 평균 ROE ≥ (%)<input type="number" id="roeMin" value="15" step="1"></div>
         <div class="row">부채비율 ≤ (%)<input type="number" id="debtMax" value="50" step="10"></div>
-        <div class="row">연속 흑자 연수 ≥ (년)<input type="number" id="profitYears" value="10" step="1"></div>
+        <div class="row">연속 흑자 연수 ≥ (년)<input type="number" id="profitYears" value="5" step="1"></div>
         <div class="row">PER이 5년 중앙값보다 낮음<input type="checkbox" id="perLow" checked></div>
       </div>
       <div class="group">
-        <h3>금융업 (은행·증권·보험·지주)</h3>
+        <h3>금융업 (은행·증권·보험·지주 등)</h3>
         <div class="row">PBR ≤ (배)<input type="number" id="pbrMax" value="1" step="0.1"></div>
         <div class="row">3년 평균 ROE ≥ (%)<input type="number" id="finRoeMin" value="10" step="1"></div>
       </div>
@@ -110,8 +114,12 @@ const $ = id => document.getElementById(id);
 let DATA = null;
 const num = (v, d = 1) => v == null ? '–' : v.toLocaleString('ko-KR', {maximumFractionDigits: d, minimumFractionDigits: d});
 const unit = (v, u, k = 1) => v == null ? '–' : num(v, k) + u;
-const mil = v => v == null ? '–' : '$' + Math.round(v / 1e6).toLocaleString('en-US') + 'M';
-const bil = v => v == null ? '–' : '$' + (v / 1e9).toLocaleString('en-US', {maximumFractionDigits: 1}) + 'B';
+let MKT = 'us';
+// 금액 표시: 미국은 달러, 한국은 억원
+const mil = v => v == null ? '–' : MKT === 'kr' ? Math.round(v / 1e8).toLocaleString('ko-KR') + '억'
+  : '$' + Math.round(v / 1e6).toLocaleString('en-US') + 'M';
+const bil = v => v == null ? '–' : MKT === 'kr' ? (v / 1e12 >= 1 ? (v / 1e12).toLocaleString('ko-KR', {maximumFractionDigits: 1}) + '조' : Math.round(v / 1e8).toLocaleString('ko-KR') + '억')
+  : '$' + (v / 1e9).toLocaleString('en-US', {maximumFractionDigits: 1}) + 'B';
 
 function cfg() {
   return {roeMin: +$('roeMin').value, debtMax: +$('debtMax').value, profitYears: +$('profitYears').value,
@@ -230,13 +238,26 @@ function render() {
     : '<div class="empty">조건을 통과한 종목이 없습니다</div>';
 }
 
-fetch('data.json', {cache: 'no-store'}).then(r => r.json()).then(d => {
-  DATA = d;
-  $('meta').textContent = `기준 ${d.meta.generated} · 최신 분기 ${d.meta.newest_q} · 투자 판단의 책임은 본인에게 있습니다`;
-  if (d.meta.sample) $('banner').innerHTML = '<div class="banner">지금 보이는 것은 가상의 샘플 데이터입니다. GitHub Actions가 처음 실행되면 실제 데이터로 바뀝니다.</div>';
-  document.querySelectorAll('input,select').forEach(e => e.addEventListener('input', render));
-  render();
-}).catch(() => { $('meta').textContent = 'data.json을 불러오지 못했습니다'; });
+const FILES = {us: 'data.json', kr: 'data_kr.json'}, CACHE = {};
+function load(m) {
+  MKT = m; DATA = null;
+  $('tabUS').classList.toggle('on', m === 'us'); $('tabKR').classList.toggle('on', m === 'kr');
+  $('banner').innerHTML = ''; $('list').innerHTML = ''; $('count').textContent = '';
+  $('meta').textContent = '불러오는 중…';
+  const p = CACHE[m] || (CACHE[m] = fetch(FILES[m], {cache: 'no-store'}).then(r => { if (!r.ok) throw 0; return r.json(); }));
+  p.then(d => {
+    if (MKT !== m) return;
+    DATA = d;
+    $('meta').textContent = `기준 ${d.meta.generated} · 최신 분기 ${d.meta.newest_q} · 투자 판단의 책임은 본인에게 있습니다`;
+    if (d.meta.sample) $('banner').innerHTML = '<div class="banner">지금 보이는 것은 가상의 샘플 데이터입니다. GitHub Actions가 처음 실행되면 실제 데이터로 바뀝니다.</div>';
+    render();
+  }).catch(() => {
+    delete CACHE[m];
+    if (MKT === m) $('meta').textContent = m === 'kr' ? '한국 데이터가 아직 없습니다 (DART 인증키 등록 후 다음 실행부터 생성)' : '데이터를 불러오지 못했습니다';
+  });
+}
+document.querySelectorAll('input,select').forEach(e => e.addEventListener('input', () => DATA && render()));
+load('us');
 </script>
 </body>
 </html>

@@ -1,0 +1,125 @@
+"""한국: DART 재무 + 시세 수집. GitHub Actions에서 실행 (환경변수 DART_API_KEY 필요)."""
+import datetime as dt
+import io
+import json
+import os
+import sys
+import time
+import zipfile
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
+
+import requests
+import FinanceDataReader as fdr
+
+sys.path.insert(0, os.path.dirname(__file__))
+from lib import price_metrics
+from lib_kr import parse_multi_acnt
+
+KEY = os.environ.get('DART_API_KEY') or sys.exit('DART_API_KEY 시크릿이 없습니다')
+API = 'https://opendart.fss.or.kr/api'
+CACHE = 'data/cache/kr'
+REPORTS = {1: '11013', 2: '11012', 3: '11014', 4: '11011'}  # 1분기, 반기, 3분기, 사업보고서
+FIRST_YEAR = 2015  # DART 재무 API 제공 시작 연도
+os.makedirs(CACHE, exist_ok=True)
+
+
+def load(name, default):
+    p = f'{CACHE}/{name}'
+    return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else default
+
+
+def save(name, obj):
+    json.dump(obj, open(f'{CACHE}/{name}', 'w', encoding='utf-8'), ensure_ascii=False)
+
+
+class LimitReached(Exception):
+    pass
+
+
+def dart(path, **params):
+    r = requests.get(f'{API}/{path}', params={'crtfc_key': KEY, **params}, timeout=30)
+    r.raise_for_status()
+    if path.endswith('.xml'):
+        return r.content
+    j = r.json()
+    if j.get('status') == '020':
+        raise LimitReached(j.get('message'))
+    time.sleep(0.07)
+    return j
+
+
+# 1) 상장 종목 목록 (보통주만, 스팩 제외)
+lst = fdr.StockListing('KRX')
+lst = lst[lst['Market'].isin(['KOSPI', 'KOSDAQ', 'KOSDAQ GLOBAL'])]
+lst = lst[lst['Code'].str.endswith('0') & ~lst['Name'].str.contains('스팩')]
+listing = {r.Code: {'name': r.Name, 'market': 'KOSDAQ' if 'KOSDAQ' in r.Market else 'KOSPI',
+                    'shares': int(r.Stocks), 'marcap': int(r.Marcap)}
+           for r in lst.itertuples()}
+print('종목 수', len(listing))
+
+# 2) 종목코드 -> DART 고유번호
+z = zipfile.ZipFile(io.BytesIO(dart('corpCode.xml')))
+root = ET.fromstring(z.read(z.namelist()[0]))
+corp = {}
+for e in root.iter('list'):
+    sc = (e.findtext('stock_code') or '').strip()
+    if sc in listing:
+        corp[sc] = e.findtext('corp_code')
+save('corp.json', corp)
+save('listing.json', listing)
+
+induty = load('induty.json', {})
+fin = load('fin.json', {})
+done = set(load('fin_done.json', []))
+try:
+    # 3) 업종코드 (금융업 판정용, 없는 것만 조회)
+    for sc, cc in corp.items():
+        if cc not in induty:
+            j = dart('company.json', corp_code=cc)
+            induty[cc] = j.get('induty_code', '')
+    save('induty.json', induty)
+
+    # 4) 분기 재무: 과거는 캐시 재사용, 최근 2개 연도는 매번 다시 받음(정정공시 반영)
+    today = dt.date.today()
+    codes = sorted(set(corp.values()))
+    for y in range(FIRST_YEAR, today.year + 1):
+        for q, rc in REPORTS.items():
+            lab = f'{y}Q{q}'
+            if dt.date(y, q * 3, 1) > today:
+                continue
+            if lab in done and y < today.year - 1:
+                continue
+            for i in range(0, len(codes), 100):
+                j = dart('fnlttMultiAcnt.json', corp_code=','.join(codes[i:i + 100]),
+                         bsns_year=y, reprt_code=rc)
+                for cc, vals in parse_multi_acnt(j.get('list', []), q).items():
+                    if vals:
+                        fin.setdefault(cc, {})[lab] = vals
+            done.add(lab)
+            print('재무', lab)
+    save('fin.json', fin)
+    save('fin_done.json', sorted(done))
+except LimitReached as e:
+    print('DART 일일 호출 한도 도달, 다음 실행에서 이어 받음:', e)
+    save('induty.json', induty)
+    save('fin.json', fin)
+    save('fin_done.json', sorted(done))
+
+# 5) 시세 (6년치 종가 -> 지표만 저장)
+start = (dt.date.today() - dt.timedelta(days=365 * 6 + 30)).isoformat()
+
+
+def px(code):
+    try:
+        df = fdr.DataReader(code, start)
+        return code, price_metrics([d.date() for d in df.index], df['Close'].astype(float).tolist(),
+                                   df['Volume'].fillna(0).astype(float).tolist())
+    except Exception:
+        return code, None
+
+
+with ThreadPoolExecutor(8) as ex:
+    prices = {c: m for c, m in ex.map(px, listing) if m}
+save('prices.json', prices)
+print('시세', len(prices))
