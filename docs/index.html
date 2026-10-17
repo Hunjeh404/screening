@@ -46,6 +46,8 @@ details.filters summary{cursor:pointer;padding:10px 0;font-weight:600}
 .detail h4{font-size:12.5px;color:var(--sub);margin:8px 0 4px;font-weight:400}
 svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
 .empty{color:var(--sub);text-align:center;padding:40px 0}
+.sector{display:flex;justify-content:space-between;align-items:baseline;margin:22px 2px 8px;font-weight:600;font-size:15px;color:var(--accent)}
+.sector span{color:var(--sub);font-weight:400;font-size:13px}
 @media (min-width:700px){.grid{grid-template-columns:repeat(6,1fr)}.cols{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}}
 </style>
 </head>
@@ -218,7 +220,14 @@ function render() {
     return asc ? x - y : y - x;
   });
   $('count').innerHTML = `전체 ${DATA.meta.count.toLocaleString()}종목 · 실적 신고가 ${rec.length}종목 · 조건 통과 <b>${list.length}종목</b>`;
-  $('list').innerHTML = list.length ? list.map(card).join('') : '<div class="empty">조건을 통과한 종목이 없습니다</div>';
+  // 섹터별로 묶기: 종목이 많은 섹터부터, 섹터 안에서는 고른 정렬 순서 유지 (미분류는 맨 뒤)
+  const groups = {};
+  list.forEach(s => (groups[s.sector || '미분류'] ||= []).push(s));
+  const order = Object.keys(groups).sort((a, b) =>
+    (a === '미분류') - (b === '미분류') || groups[b].length - groups[a].length);
+  $('list').innerHTML = list.length
+    ? order.map(g => `<div class="sector">${g}<span>${groups[g].length}종목</span></div>` + groups[g].map(card).join('')).join('')
+    : '<div class="empty">조건을 통과한 종목이 없습니다</div>';
 }
 
 fetch('data.json', {cache: 'no-store'}).then(r => r.json()).then(d => {

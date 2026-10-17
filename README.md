@@ -7,6 +7,7 @@ docs/index.html  웹앱 (GitHub Pages로 공개)
 docs/data.json   스크리닝 결과 (처음에는 가상의 샘플 데이터)
 scripts/fetch.py SEC 재무(companyfacts 일괄 파일)와 야후 시세를 받아 data/cache에 저장
 scripts/screen.py 지표를 계산해 docs/data.json 생성
+scripts/sectors.py 실적 신고가 종목에 야후 섹터(11개)를 붙임, 조회 결과는 저장해 재사용
 .github/workflows/daily.yml 화~토 07:47(한국시간)에 위 두 스크립트를 자동 실행
 
 처음 설정

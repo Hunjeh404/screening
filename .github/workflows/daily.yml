@@ -26,6 +26,7 @@ jobs:
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       - run: python scripts/screen.py
+      - run: python scripts/sectors.py
       - run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
