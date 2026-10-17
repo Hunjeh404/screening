@@ -38,8 +38,16 @@ class LimitReached(Exception):
 
 
 def dart(path, **params):
-    r = requests.get(f'{API}/{path}', params={'crtfc_key': KEY, **params}, timeout=30)
-    r.raise_for_status()
+    # 일시적인 연결 실패(시간 초과 등)는 간격을 늘려 가며 다시 시도
+    for i in range(5):
+        try:
+            r = requests.get(f'{API}/{path}', params={'crtfc_key': KEY, **params}, timeout=60)
+            r.raise_for_status()
+            break
+        except requests.RequestException:
+            if i == 4:
+                raise
+            time.sleep(10 * (i + 1))
     if path.endswith('.xml'):
         return r.content
     j = r.json()
