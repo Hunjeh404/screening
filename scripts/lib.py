@@ -140,6 +140,18 @@ def shares_out(facts):
     return None
 
 
+def eps_shares(facts):
+    """최근 연간 순이익 / 연간 기본 EPS = 공시 기준 실제 주식 수 (주식 종류별 가치 차이 확인용)"""
+    eps = latest_by_period(facts.get('us-gaap', {}).get('EarningsPerShareBasic', {})
+                           .get('units', {}).get('USD/shares', []))
+    ni = latest_by_period(usd(facts, 'NetIncomeLoss'))
+    both = [k for k in eps if k in ni and 350 <= (d(k[1]) - d(k[0])).days <= 380 and eps[k]]
+    if not both:
+        return None
+    k = max(both, key=lambda k: k[1])
+    return abs(ni[k] / eps[k])
+
+
 def ttm(seq, qv, key):
     res = []
     for i in range(len(seq)):
@@ -174,8 +186,10 @@ def price_metrics(dates, closes):
     }
 
 
-def analyze(ext, px, shares):
-    """한 종목의 지표 계산. 필터 판정은 웹앱에서 한다."""
+def analyze(ext, px, shares, implied=None):
+    """한 종목의 지표 계산. 필터 판정은 웹앱에서 한다.
+    implied: EPS로 역산한 주식 수. 발행주식수와 크게 다르면 주식 종류별 가치가 달라
+    시가총액을 믿을 수 없으므로 밸류에이션 지표를 비운다."""
     qv = ext['q']
     labs = sorted(l for l in qv if qv[l].get('rev') is not None or qv[l].get('op') is not None)
     if len(labs) < 5 or not px or not shares:
@@ -209,15 +223,16 @@ def analyze(ext, px, shares):
     eq, liab = bs.get('equity'), bs.get('liab')
     debt = liab / eq * 100 if (eq and eq > 0 and liab is not None) else None
 
-    marcap = px['close'] * shares
+    share_warn = bool(implied) and not (0.6 <= shares / implied <= 1.67)
+    marcap = None if share_warn else px['close'] * shares
     ni_now = ni_t[-1]
-    per_now = marcap / ni_now if ni_now and ni_now > 0 else None
-    pbr = marcap / eq if eq and eq > 0 else None
-    hist = [px['qe'][l] * shares / n for l, n in list(zip(seq, ni_t))[-20:]
-            if n and n > 0 and px['qe'].get(l)]
+    per_now = marcap / ni_now if marcap and ni_now and ni_now > 0 else None
+    pbr = marcap / eq if marcap and eq and eq > 0 else None
+    hist = [] if share_warn else [px['qe'][l] * shares / n for l, n in list(zip(seq, ni_t))[-20:]
+                                  if n and n > 0 and px['qe'].get(l)]
     per_med = statistics.median(hist) if len(hist) >= 8 else None
     graham = None
-    if ni_now and ni_now > 0 and eq and eq > 0:
+    if marcap and ni_now and ni_now > 0 and eq and eq > 0:
         g = (22.5 * (ni_now / shares) * (eq / shares)) ** 0.5
         graham = (g - px['close']) / g * 100
     c = px['close']
@@ -225,7 +240,7 @@ def analyze(ext, px, shares):
     r = lambda v, k=1: None if v is None else round(v, k)
     tail = seq[-12:]
     return {
-        'latest_q': seq[-1], **rec, 'marcap': round(marcap),
+        'latest_q': seq[-1], **rec, 'marcap': None if marcap is None else round(marcap), 'share_warn': share_warn,
         'roe3': r(roe3), 'debt': r(debt), 'profit_years': profit_years,
         'per': r(per_now), 'per_med5': r(per_med), 'pbr': r(pbr, 2), 'graham_disc': r(graham),
         'above120': px['ma120'] is not None and c > px['ma120'],

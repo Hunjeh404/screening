@@ -100,6 +100,7 @@ svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
 const $ = id => document.getElementById(id);
 let DATA = null;
 const num = (v, d = 1) => v == null ? '–' : v.toLocaleString('ko-KR', {maximumFractionDigits: d, minimumFractionDigits: d});
+const unit = (v, u, k = 1) => v == null ? '–' : num(v, k) + u;
 const mil = v => v == null ? '–' : '$' + Math.round(v / 1e6).toLocaleString('en-US') + 'M';
 const bil = v => v == null ? '–' : '$' + (v / 1e9).toLocaleString('en-US', {maximumFractionDigits: 1}) + 'B';
 
@@ -147,17 +148,18 @@ function card(s) {
   if (s.op_q && s.op_ttm) chips.push('<span class="chip">영업이익 신고가</span>');
   if (s.fin) chips.push('<span class="chip muted">금융업</span>');
   if ((s.above120 || s.above240) && s.vol_down) chips.push('<span class="chip">차트 조건 충족</span>');
+  if (s.share_warn) chips.push('<span class="chip muted">주식 종류별 가치가 달라 시총·PER·PBR 계산 제외</span>');
   const g = s.graham_disc;
   const m = (k, v, cls = '') => `<div class="m"><span>${k}</span><b class="${cls}">${v}</b></div>`;
   return `<div class="card" onclick="this.classList.toggle('open')">
     <div class="top"><span class="name">${s.name}</span><span class="code">${s.code} · ${s.market} · ${s.latest_q}</span></div>
     <div class="chips">${chips.join('')}</div>
     <div class="grid">
-      ${m('ROE 3년', num(s.roe3) + '%')}
-      ${s.fin ? m('PBR', num(s.pbr, 2) + '배') : m('부채비율', num(s.debt, 0) + '%')}
+      ${m('ROE 3년', unit(s.roe3, '%'))}
+      ${s.fin ? m('PBR', unit(s.pbr, '배', 2)) : m('부채비율', unit(s.debt, '%', 0))}
       ${m('PER / 5년 중앙', num(s.per) + ' / ' + num(s.per_med5))}
-      ${m('그레이엄 할인', num(g) + '%', g != null && g < 0 ? 'neg' : '')}
-      ${m('52주 고점 대비', num(s.dd52) + '%')}
+      ${m('그레이엄 할인', unit(g, '%'), g != null && g < 0 ? 'neg' : '')}
+      ${m('52주 고점 대비', unit(s.dd52, '%'))}
       ${m('시총', bil(s.marcap))}
     </div>
     <div class="detail">
@@ -177,7 +179,7 @@ function render() {
   const asc = key === 'perRatio' || key === 'dd52';
   list.sort((a, b) => {
     const x = val(a), y = val(b);
-    if (x == null) return 1; if (y == null) return -1;
+    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
     return asc ? x - y : y - x;
   });
   $('count').innerHTML = `전체 ${DATA.meta.count.toLocaleString()}종목 · 실적 신고가 ${rec.length}종목 · 조건 통과 <b>${list.length}종목</b>`;

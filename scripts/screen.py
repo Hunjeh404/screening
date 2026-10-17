@@ -17,7 +17,7 @@ stocks = []
 for cik, info in listing.items():
     if cik not in fin:
         continue
-    a = analyze(fin[cik], prices.get(cik), fin[cik].get('shares'))
+    a = analyze(fin[cik], prices.get(cik), fin[cik].get('shares'), fin[cik].get('eps_shares'))
     if not a:
         continue
     code = str(sic.get(cik, ''))

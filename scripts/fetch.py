@@ -10,7 +10,7 @@ import requests
 import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
-from lib import extract, shares_out, price_metrics
+from lib import extract, shares_out, eps_shares, price_metrics
 
 # SEC는 연락처가 담긴 User-Agent를 요구한다
 UA = {'User-Agent': os.environ.get('SEC_USER_AGENT') or sys.exit('SEC_USER_AGENT 시크릿이 없습니다 (예: Hong Gildong you@gmail.com)')}
@@ -73,7 +73,7 @@ with zipfile.ZipFile(zp) as z:
         n = f'CIK{cik:010d}.json'
         if n in names:
             facts = json.loads(z.read(n)).get('facts', {})
-            fin[str(cik)] = {**extract(facts), 'shares': shares_out(facts)}
+            fin[str(cik)] = {**extract(facts), 'shares': shares_out(facts), 'eps_shares': eps_shares(facts)}
 os.remove(zp)
 save('fin.json', fin)
 save('listing.json', listing)
