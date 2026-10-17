@@ -8,7 +8,7 @@
 <style>
 :root{
   --bg:#0b1513;--panel:#11201d;--line:#1f3631;--text:#e3efec;--sub:#87a39c;
-  --accent:#5fe0c2;--accent2:#3a9e88;--warn:#e8796b;--chip:#183029;
+  --accent:#5fe0c2;--bull:#f2c14e;--accent2:#3a9e88;--warn:#e8796b;--chip:#183029;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 'IBM Plex Sans KR',system-ui,sans-serif}
@@ -34,6 +34,7 @@ details.filters summary{cursor:pointer;padding:10px 0;font-weight:600}
 .count b{color:var(--accent);font-weight:600}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
 .card:hover{border-color:var(--accent2)}
+.card.bull,.card.bull:hover{border:1.5px solid var(--bull);box-shadow:0 0 0 1px var(--bull) inset}
 .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .name{font-weight:600;font-size:16px}
 .code{color:var(--sub);font:500 12px 'IBM Plex Mono',monospace}
@@ -67,6 +68,10 @@ svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
       <h3>실적 신고가 (항상 적용)</h3>
       <p class="note">매출 또는 영업이익이 직전 분기 기준 사상 최고이면서 최근 4분기 합계도 사상 최고. 최신 분기가 2분기 이상 늦은 종목은 제외.</p>
     </div>
+    <div class="group">
+      <h3>기술적 분석 (항상 적용)</h3>
+      <p class="note">종가가 120일선 또는 240일선 위, 최근 20일 변동성이 60일 변동성보다 작음. 주가와 OBV의 기간 변화를 각각 그 기간 평균 주간 변동폭으로 나눠 다이버전스 체크.</p>
+    </div>
     <div class="cols">
       <div class="group">
         <h3>일반 기업</h3>
@@ -80,18 +85,6 @@ svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
         <div class="row">PBR ≤ (배)<input type="number" id="pbrMax" value="1" step="0.1"></div>
         <div class="row">3년 평균 ROE ≥ (%)<input type="number" id="finRoeMin" value="10" step="1"></div>
       </div>
-    </div>
-    <div class="group">
-      <h3>차트 보조</h3>
-      <div class="row">적용<input type="checkbox" id="chartOn" checked></div>
-      <p class="note">종가가 120일선 또는 240일선 위, 최근 20일 변동성이 60일 변동성보다 작음.</p>
-    </div>
-    <div class="group">
-      <h3>주봉 OBV 다이버전스</h3>
-      <div class="row">비교 기간 (주, 8~104)<input type="number" id="obvWeeks" value="52" min="8" max="104" step="1"></div>
-      <div class="row">매집 신호 있는 종목만<input type="checkbox" id="obvBull"></div>
-      <div class="row">이탈 신호 종목 제외<input type="checkbox" id="obvBear"></div>
-      <p class="note">주가와 OBV의 기간 변화를 각각 그 기간 평균 주간 변동폭으로 나눠 비교. ±1 안이면 횡보. 매집: OBV는 올랐는데 주가는 오르지 않음. 이탈: 주가가 떨어졌는데 OBV가 더 떨어졌거나, OBV는 떨어졌는데 주가는 떨어지지 않음. 상장 기간이 짧으면 있는 기간만큼만 봄.</p>
     </div>
   </details>
 
@@ -123,11 +116,10 @@ const bil = v => v == null ? '–' : MKT === 'kr' ? (v / 1e12 >= 1 ? (v / 1e12).
 
 function cfg() {
   return {roeMin: +$('roeMin').value, debtMax: +$('debtMax').value, profitYears: +$('profitYears').value,
-          perLow: $('perLow').checked, pbrMax: +$('pbrMax').value, finRoeMin: +$('finRoeMin').value,
-          chartOn: $('chartOn').checked, obvWeeks: Math.min(104, Math.max(8, +$('obvWeeks').value || 52)),
-          obvBull: $('obvBull').checked, obvBear: $('obvBear').checked};
+          perLow: $('perLow').checked, pbrMax: +$('pbrMax').value, finRoeMin: +$('finRoeMin').value};
 }
 
+const OBV_WEEKS = 52;  // 주봉 OBV 비교 기간 (고정)
 // 주봉 OBV 다이버전스: 기간 변화량 / 평균 주간 변동폭으로 주가와 OBV를 같은 잣대로 맞춘다
 function obv(s, weeks) {
   const w = s.wk;
@@ -158,12 +150,10 @@ function pass(s, c) {
     if (s.profit_years < c.profitYears) return false;
     if (c.perLow && !(s.per != null && s.per_med5 != null && s.per < s.per_med5)) return false;
   }
-  if (c.chartOn && !((s.above120 || s.above240) && s.vol_down)) return false;
-  if (c.obvBull || c.obvBear) {
-    const o = obv(s, c.obvWeeks);
-    if (c.obvBull && !(o && o.bull)) return false;
-    if (c.obvBear && o && o.bear) return false;
-  }
+  // 기술적 분석 (항상 적용): 이동평균·변동성 조건 + 주봉 OBV 52주 이탈 신호 제외
+  if (!((s.above120 || s.above240) && s.vol_down)) return false;
+  const o = obv(s, OBV_WEEKS);
+  if (o && o.bear) return false;
   return true;
 }
 
@@ -190,13 +180,12 @@ function card(s) {
   if (s.op_q && s.op_ttm) chips.push('<span class="chip">영업이익 신고가</span>');
   if (s.fin) chips.push('<span class="chip muted">금융업</span>');
   if ((s.above120 || s.above240) && s.vol_down) chips.push('<span class="chip">차트 조건 충족</span>');
-  const o = obv(s, cfg().obvWeeks);
-  if (o && o.bull) chips.push(`<span class="chip">OBV 매집 ${o.n}주</span>`);
-  if (o && o.bear) chips.push(`<span class="chip muted">OBV 이탈 ${o.n}주</span>`);
+  const o = obv(s, OBV_WEEKS);
+  if (o && o.bull) chips.push(`<span class="chip" style="color:var(--bull)">OBV 매집 ${o.n}주</span>`);
   if (s.share_warn) chips.push('<span class="chip muted">주식 수 확인 불가로 시총·PER·PBR 계산 제외</span>');
   const g = s.graham_disc;
   const m = (k, v, cls = '') => `<div class="m"><span>${k}</span><b class="${cls}">${v}</b></div>`;
-  return `<div class="card" onclick="this.classList.toggle('open')">
+  return `<div class="card${o && o.bull ? ' bull' : ''}" onclick="this.classList.toggle('open')">
     <div class="top"><span class="name">${s.name}</span><span class="code">${s.code} · ${s.market} · ${s.latest_q}</span></div>
     <div class="chips">${chips.join('')}</div>
     <div class="grid">
