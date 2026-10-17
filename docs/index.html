@@ -183,7 +183,7 @@ function card(s) {
   const o = obv(s, cfg().obvWeeks);
   if (o && o.bull) chips.push(`<span class="chip">OBV 매집 ${o.n}주</span>`);
   if (o && o.bear) chips.push(`<span class="chip muted">OBV 이탈 ${o.n}주</span>`);
-  if (s.share_warn) chips.push('<span class="chip muted">주식 종류별 가치가 달라 시총·PER·PBR 계산 제외</span>');
+  if (s.share_warn) chips.push('<span class="chip muted">주식 수 확인 불가로 시총·PER·PBR 계산 제외</span>');
   const g = s.graham_disc;
   const m = (k, v, cls = '') => `<div class="m"><span>${k}</span><b class="${cls}">${v}</b></div>`;
   return `<div class="card" onclick="this.classList.toggle('open')">

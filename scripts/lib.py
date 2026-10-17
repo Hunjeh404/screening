@@ -130,26 +130,20 @@ def extract(facts):
 
 
 def shares_out(facts):
-    """최신 공시 기준 발행주식수 (보통주 종류가 여럿이면 같은 공시의 값을 합산)"""
-    for ns, tag in (('dei', 'EntityCommonStockSharesOutstanding'), ('us-gaap', 'CommonStockSharesOutstanding')):
-        ent = [e for e in facts.get(ns, {}).get(tag, {}).get('units', {}).get('shares', [])]
-        if ent:
-            last = max(ent, key=lambda e: (e['end'], e['filed']))
-            same = {e['val'] for e in ent if e.get('accn') == last.get('accn') and e['end'] == last['end']}
-            return sum(same)
+    """주식 수 {'val', 'end'}. 분기 공시의 가중평균 기본주식수(EPS 계산 단위)를 우선 쓰고,
+    없으면 표지의 발행주식수(보통주 종류가 여럿이면 같은 공시의 값을 합산)를 쓴다."""
+    wa = latest_by_period(facts.get('us-gaap', {}).get('WeightedAverageNumberOfSharesOutstandingBasic', {})
+                          .get('units', {}).get('shares', []))
+    wa = {k: v for k, v in wa.items() if 80 <= (d(k[1]) - d(k[0])).days <= 380 and v}
+    if wa:
+        k = max(wa, key=lambda k: (k[1], -(d(k[1]) - d(k[0])).days))
+        return {'val': wa[k], 'end': k[1]}
+    ent = facts.get('dei', {}).get('EntityCommonStockSharesOutstanding', {}).get('units', {}).get('shares', [])
+    if ent:
+        last = max(ent, key=lambda e: (e['end'], e['filed']))
+        same = {e['val'] for e in ent if e.get('accn') == last.get('accn') and e['end'] == last['end']}
+        return {'val': sum(same), 'end': last['end']}
     return None
-
-
-def eps_shares(facts):
-    """최근 연간 순이익 / 연간 기본 EPS = 공시 기준 실제 주식 수 (주식 종류별 가치 차이 확인용)"""
-    eps = latest_by_period(facts.get('us-gaap', {}).get('EarningsPerShareBasic', {})
-                           .get('units', {}).get('USD/shares', []))
-    ni = latest_by_period(usd(facts, 'NetIncomeLoss'))
-    both = [k for k in eps if k in ni and 350 <= (d(k[1]) - d(k[0])).days <= 380 and eps[k]]
-    if not both:
-        return None
-    k = max(both, key=lambda k: k[1])
-    return abs(ni[k] / eps[k])
 
 
 def ttm(seq, qv, key):
@@ -199,13 +193,13 @@ def price_metrics(dates, closes, vols=None):
     }
 
 
-def analyze(ext, px, shares, implied=None):
+def analyze(ext, px, sh):
     """한 종목의 지표 계산. 필터 판정은 웹앱에서 한다.
-    implied: EPS로 역산한 주식 수. 발행주식수와 크게 다르면 주식 종류별 가치가 달라
-    시가총액을 믿을 수 없으므로 밸류에이션 지표를 비운다."""
+    sh: shares_out() 결과. 주식 수가 없거나 오래됐거나, 계산 결과가 불가능한 값이면
+    (공시 단위와 거래 주식 종류가 다른 경우 등) 밸류에이션 지표를 비운다."""
     qv = ext['q']
     labs = sorted(l for l in qv if qv[l].get('rev') is not None or qv[l].get('op') is not None)
-    if len(labs) < 5 or not px or not shares:
+    if len(labs) < 5 or not px:
         return None
     seq = label_seq(labs[0], labs[-1])
     rev_q = [qv.get(l, {}).get('rev') for l in seq]
@@ -236,7 +230,8 @@ def analyze(ext, px, shares, implied=None):
     eq, liab = bs.get('equity'), bs.get('liab')
     debt = liab / eq * 100 if (eq and eq > 0 and liab is not None) else None
 
-    share_warn = bool(implied) and not (0.6 <= shares / implied <= 1.67)
+    shares = sh['val'] if sh and label(sh['end']) >= shift_label(seq[-1], -3) else None
+    share_warn = not shares
     marcap = None if share_warn else px['close'] * shares
     ni_now = ni_t[-1]
     per_now = marcap / ni_now if marcap and ni_now and ni_now > 0 else None
@@ -248,6 +243,9 @@ def analyze(ext, px, shares, implied=None):
     if marcap and ni_now and ni_now > 0 and eq and eq > 0:
         g = (22.5 * (ni_now / shares) * (eq / shares)) ** 0.5
         graham = (g - px['close']) / g * 100
+    if (per_now is not None and per_now < 1) or (pbr is not None and pbr < 0.05):
+        share_warn = True
+        marcap = per_now = pbr = per_med = graham = None
     c = px['close']
 
     r = lambda v, k=1: None if v is None else round(v, k)
