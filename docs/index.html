@@ -187,7 +187,7 @@ function card(s) {
     <div class="grid">
       ${m('ROE 3년', unit(s.roe3, '%'))}
       ${s.fin ? m('PBR', unit(s.pbr, '배', 2)) : m('부채비율', unit(s.debt, '%', 0))}
-      ${m('PER / 5년 중앙', num(s.per) + ' / ' + num(s.per_med5))}
+      ${m('PER(5년중앙)', num(s.per) + '(' + num(s.per_med5) + ')')}
       ${m('최근 재무', s.latest_q)}
       ${m('52주 고점 대비', unit(s.dd52, '%'))}
       ${m('시총', bil(s.marcap))}
