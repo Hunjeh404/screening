@@ -179,7 +179,6 @@ function card(s) {
   if (s.rev_q && s.rev_ttm) chips.push('<span class="chip">매출 신고가</span>');
   if (s.op_q && s.op_ttm) chips.push('<span class="chip">영업이익 신고가</span>');
   if (s.fin) chips.push('<span class="chip muted">금융업</span>');
-  if ((s.above120 || s.above240) && s.vol_down) chips.push('<span class="chip">차트 조건 충족</span>');
   const o = obv(s, OBV_WEEKS);
   if (o && o.bull) chips.push(`<span class="chip" style="color:var(--bull)">OBV 매집 ${o.n}주</span>`);
   if (s.share_warn) chips.push('<span class="chip muted">주식 수 확인 불가로 시총·PER·PBR 계산 제외</span>');
