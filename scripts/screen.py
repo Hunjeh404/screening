@@ -21,7 +21,7 @@ for cik, info in listing.items():
     if not a:
         continue
     code = str(sic.get(cik, ''))
-    stocks.append({'code': info['ticker'], 'name': info['name'], 'market': info['exchange'],
+    stocks.append({'_cik': cik, 'code': info['ticker'], 'name': info['name'], 'market': info['exchange'],
                    'fin': code[:2] in ('60', '61', '62', '63', '64', '67'), **a})
 
 # 실적 발표가 늦어 최신 분기가 2분기 이상 뒤처진 종목은 신고가 판정에서 제외
@@ -30,6 +30,9 @@ fresh = shift_label(newest, -1)
 for s in stocks:
     s['stale'] = s['latest_q'] < fresh
     s['record'] = not s['stale'] and ((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
+    # 주봉 OBV 다이버전스 판정용 주봉 데이터는 화면에서 걸러질 수 있는 신고가 종목에만 싣는다
+    cik = s.pop('_cik')
+    s['wk'] = prices.get(cik, {}).get('wk') if s['record'] else None
 
 meta = {'generated': dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d %H:%M'),
         'sample': os.path.exists(f'{CACHE}/SAMPLE'), 'count': len(stocks), 'newest_q': newest}

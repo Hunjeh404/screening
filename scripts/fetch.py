@@ -93,8 +93,9 @@ for i in range(0, len(tl), 100):
         continue
     for t in chunk:
         try:
-            s = df[t]['Close'].dropna()
-            m = price_metrics([x.date() for x in s.index], s.astype(float).tolist())
+            x = df[t][['Close', 'Volume']].dropna(subset=['Close'])
+            m = price_metrics([i.date() for i in x.index], x['Close'].astype(float).tolist(),
+                              x['Volume'].fillna(0).astype(float).tolist())
             if m:
                 prices[str(tickers[t])] = m
         except KeyError:

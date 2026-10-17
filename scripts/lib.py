@@ -168,7 +168,19 @@ def is_record(series, min_prior):
     return len(prior) >= min_prior and series[-1] > max(prior)
 
 
-def price_metrics(dates, closes):
+def weekly(dates, closes, vols, keep=105):
+    """일봉 -> 주봉 (주 마지막 종가, 주간 거래량 합계)"""
+    wc, wv, key = [], [], None
+    for dd, c, v in zip(dates, closes, vols):
+        k = dd.isocalendar()[:2]
+        if k != key:
+            wc.append(c); wv.append(0); key = k
+        wc[-1] = c
+        wv[-1] += v or 0
+    return {'c': [float(f'{x:.5g}') for x in wc[-keep:]], 'v': [int(x) for x in wv[-keep:]]}
+
+
+def price_metrics(dates, closes, vols=None):
     n = len(closes)
     if n < 60:
         return None
@@ -183,6 +195,7 @@ def price_metrics(dates, closes):
         'close': closes[-1], 'ma120': ma(120), 'ma240': ma(240),
         'vol20': sd(20), 'vol60': sd(60), 'high52': max(closes[-250:]),
         'qe': {k: qe[k] for k in keep},
+        'wk': weekly(dates, closes, vols) if vols else None,
     }
 
 
