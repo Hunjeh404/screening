@@ -78,8 +78,8 @@ save('corp.json', corp)
 save('listing.json', listing)
 
 induty = load('induty.json', {})
-fin = load('fin.json', {})
-done = set(load('fin_done.json', []))
+fin = load('fin2.json', {})
+done = set(load('fin2_done.json', []))
 try:
     # 3) 업종코드 (금융업 판정용, 없는 것만 조회)
     for sc, cc in corp.items():
@@ -106,13 +106,13 @@ try:
                         fin.setdefault(cc, {})[lab] = vals
             done.add(lab)
             print('재무', lab)
-    save('fin.json', fin)
-    save('fin_done.json', sorted(done))
+    save('fin2.json', fin)
+    save('fin2_done.json', sorted(done))
 except LimitReached as e:
     print('DART 일일 호출 한도 도달, 다음 실행에서 이어 받음:', e)
     save('induty.json', induty)
-    save('fin.json', fin)
-    save('fin_done.json', sorted(done))
+    save('fin2.json', fin)
+    save('fin2_done.json', sorted(done))
 
 # 5) 시세 (6년치 종가 -> 지표만 저장)
 start = (dt.date.today() - dt.timedelta(days=365 * 6 + 30)).isoformat()

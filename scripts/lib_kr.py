@@ -48,9 +48,15 @@ def parse_multi_acnt(items, q):
             continue
         amt = to_num(it.get('thstrm_amount'))
         if k in IS_KEYS and q in (2, 3):
-            n = span_days(it.get('thstrm_dt', ''))
-            if n is not None and n < 120:
-                amt = to_num(it.get('thstrm_add_amount'))
+            # 2·3분기 손익: thstrm_amount는 3개월 값, thstrm_add_amount가 누적 값.
+            # 누적 칸이 있으면 그것을 쓰고, 없을 때만 기간 표기로 3개월 값인지 판단
+            add = to_num(it.get('thstrm_add_amount'))
+            if add is not None:
+                amt = add
+            else:
+                n = span_days(it.get('thstrm_dt', ''))
+                if n is not None and n < 120:
+                    amt = None
         if amt is None:
             continue
         out.setdefault(it['corp_code'], {}).setdefault(it.get('fs_div', 'OFS'), {}).setdefault(k, amt)

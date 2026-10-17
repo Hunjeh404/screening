@@ -13,7 +13,7 @@ OUT = sys.argv[2] if len(sys.argv) > 2 else 'docs/data_kr.json'
 load = lambda n: json.load(open(f'{CACHE}/{n}', encoding='utf-8'))
 
 listing, corp, induty, fin, prices = (load(n) for n in
-    ('listing.json', 'corp.json', 'induty.json', 'fin.json', 'prices.json'))
+    ('listing.json', 'corp.json', 'induty.json', 'fin2.json', 'prices.json'))
 today = dt.date.today().isoformat()
 
 stocks = []
