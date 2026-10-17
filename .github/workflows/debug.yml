@@ -1,0 +1,18 @@
+name: debug
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          out=""
+          for i in 1 2 3; do
+            c=$(curl -s -m 20 -o /dev/null -w "%{http_code}" "https://opendart.fss.or.kr/api/company.json?crtfc_key=$K&corp_code=00126380" || echo fail); out="$out opendart$i=$c"; sleep 5
+          done
+          for u in https://dart.fss.or.kr https://www.fss.or.kr https://data.krx.co.kr https://finance.naver.com https://comp.fnguide.com; do
+            c=$(curl -s -m 20 -o /dev/null -w "%{http_code}" -A "Mozilla/5.0" $u || echo fail); out="$out $u=$c"
+          done
+          ip=$(curl -s -m 10 https://ipinfo.io/country || echo ?)
+          echo "::warning title=net::$out country=$ip"
+        env:
+          K: ${{ secrets.DART_API_KEY }}
