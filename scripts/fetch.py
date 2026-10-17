@@ -1,26 +1,24 @@
-"""DART 재무 + 시세 수집. GitHub Actions에서 실행 (환경변수 DART_API_KEY 필요)."""
+"""SEC 재무 + 야후 시세 수집. GitHub Actions에서 실행."""
 import datetime as dt
-import io
 import json
 import os
 import sys
 import time
 import zipfile
-import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
-import FinanceDataReader as fdr
+import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
-from lib import parse_multi_acnt, price_metrics
+from lib import extract, shares_out, price_metrics
 
-KEY = os.environ['DART_API_KEY']
-API = 'https://opendart.fss.or.kr/api'
+# SEC는 연락처가 담긴 User-Agent를 요구한다
+UA = {'User-Agent': os.environ.get('SEC_USER_AGENT',
+                                   'screening github.com/Hunjeh404/screening Hunjeh404@users.noreply.github.com')}
 CACHE = 'data/cache'
-REPORTS = {1: '11013', 2: '11012', 3: '11014', 4: '11011'}  # 1분기, 반기, 3분기, 사업보고서
-FIRST_YEAR = 2015  # DART 재무 API 제공 시작 연도
+TMP = 'data/tmp'
 os.makedirs(CACHE, exist_ok=True)
+os.makedirs(TMP, exist_ok=True)
 
 
 def load(name, default):
@@ -32,92 +30,76 @@ def save(name, obj):
     json.dump(obj, open(f'{CACHE}/{name}', 'w', encoding='utf-8'), ensure_ascii=False)
 
 
-class LimitReached(Exception):
-    pass
-
-
-def dart(path, **params):
-    r = requests.get(f'{API}/{path}', params={'crtfc_key': KEY, **params}, timeout=30)
+def get(url, **kw):
+    for i in range(3):
+        r = requests.get(url, headers=UA, timeout=120, **kw)
+        if r.status_code == 200:
+            return r
+        time.sleep(5 * (i + 1))
     r.raise_for_status()
-    if path.endswith('.xml'):
-        return r.content
-    j = r.json()
-    if j.get('status') == '020':
-        raise LimitReached(j.get('message'))
-    time.sleep(0.07)
-    return j
 
 
-# 1) 상장 종목 목록 (보통주만, 스팩 제외)
-lst = fdr.StockListing('KRX')
-lst = lst[lst['Market'].isin(['KOSPI', 'KOSDAQ', 'KOSDAQ GLOBAL'])]
-lst = lst[lst['Code'].str.endswith('0') & ~lst['Name'].str.contains('스팩')]
-listing = {r.Code: {'name': r.Name, 'market': 'KOSDAQ' if 'KOSDAQ' in r.Market else 'KOSPI',
-                    'shares': int(r.Stocks), 'marcap': int(r.Marcap)}
-           for r in lst.itertuples()}
+# 1) 뉴욕증권거래소·나스닥 상장 종목 (회사당 대표 티커 하나)
+tk = get('https://www.sec.gov/files/company_tickers_exchange.json').json()
+cols = tk['fields']
+listing = {}
+for row in tk['data']:
+    x = dict(zip(cols, row))
+    if x['exchange'] in ('NYSE', 'Nasdaq') and x['cik'] not in listing:
+        listing[x['cik']] = {'ticker': x['ticker'], 'name': x['name'], 'exchange': x['exchange']}
 print('종목 수', len(listing))
 
-# 2) 종목코드 -> DART 고유번호
-z = zipfile.ZipFile(io.BytesIO(dart('corpCode.xml')))
-root = ET.fromstring(z.read(z.namelist()[0]))
-corp = {}
-for e in root.iter('list'):
-    sc = (e.findtext('stock_code') or '').strip()
-    if sc in listing:
-        corp[sc] = e.findtext('corp_code')
-save('corp.json', corp)
+# 2) 업종코드(SIC): 금융업 판정·스팩 제외용, 없는 것만 조회
+sic = load('sic.json', {})
+for cik in listing:
+    if str(cik) not in sic:
+        try:
+            sic[str(cik)] = get(f'https://data.sec.gov/submissions/CIK{cik:010d}.json').json().get('sic', '')
+        except Exception:
+            sic[str(cik)] = ''
+        time.sleep(0.12)  # SEC 초당 10회 제한
+save('sic.json', sic)
+listing = {c: v for c, v in listing.items() if sic.get(str(c)) != '6770'}  # 스팩 제외
+
+# 3) 재무: SEC 일괄 파일(companyfacts.zip)에서 대상 회사만 추출
+zp = f'{TMP}/companyfacts.zip'
+with get('https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip', stream=True) as r:
+    with open(zp, 'wb') as f:
+        for chunk in r.iter_content(1 << 20):
+            f.write(chunk)
+fin = {}
+with zipfile.ZipFile(zp) as z:
+    names = set(z.namelist())
+    for cik in listing:
+        n = f'CIK{cik:010d}.json'
+        if n in names:
+            facts = json.loads(z.read(n)).get('facts', {})
+            fin[str(cik)] = {**extract(facts), 'shares': shares_out(facts)}
+os.remove(zp)
+save('fin.json', fin)
 save('listing.json', listing)
+print('재무', len(fin))
 
-induty = load('induty.json', {})
-fin = load('fin.json', {})
-done = set(load('fin_done.json', []))
-try:
-    # 3) 업종코드 (금융업 판정용, 없는 것만 조회)
-    for sc, cc in corp.items():
-        if cc not in induty:
-            j = dart('company.json', corp_code=cc)
-            induty[cc] = j.get('induty_code', '')
-    save('induty.json', induty)
-
-    # 4) 분기 재무: 과거는 캐시 재사용, 최근 2개 연도는 매번 다시 받음(정정공시 반영)
-    today = dt.date.today()
-    codes = sorted(set(corp.values()))
-    for y in range(FIRST_YEAR, today.year + 1):
-        for q, rc in REPORTS.items():
-            lab = f'{y}Q{q}'
-            if dt.date(y, q * 3, 1) > today:
-                continue
-            if lab in done and y < today.year - 1:
-                continue
-            for i in range(0, len(codes), 100):
-                j = dart('fnlttMultiAcnt.json', corp_code=','.join(codes[i:i + 100]),
-                         bsns_year=y, reprt_code=rc)
-                for cc, vals in parse_multi_acnt(j.get('list', []), q).items():
-                    if vals:
-                        fin.setdefault(cc, {})[lab] = vals
-            done.add(lab)
-            print('재무', lab)
-    save('fin.json', fin)
-    save('fin_done.json', sorted(done))
-except LimitReached as e:
-    print('DART 일일 호출 한도 도달, 다음 실행에서 이어 받음:', e)
-    save('induty.json', induty)
-    save('fin.json', fin)
-    save('fin_done.json', sorted(done))
-
-# 5) 시세 (6년치 종가 -> 지표만 저장)
-start = (dt.date.today() - dt.timedelta(days=365 * 6 + 30)).isoformat()
-
-
-def px(code):
+# 4) 시세: 6년치 종가 -> 지표만 저장
+tickers = {v['ticker']: c for c, v in listing.items() if str(c) in fin}
+prices = {}
+tl = list(tickers)
+for i in range(0, len(tl), 100):
+    chunk = tl[i:i + 100]
     try:
-        df = fdr.DataReader(code, start)
-        return code, price_metrics([d.date() for d in df.index], df['Close'].astype(float).tolist())
-    except Exception:
-        return code, None
-
-
-with ThreadPoolExecutor(8) as ex:
-    prices = {c: m for c, m in ex.map(px, listing) if m}
+        df = yf.download(chunk, period='6y', interval='1d', auto_adjust=False,
+                         progress=False, threads=True, group_by='ticker')
+    except Exception as e:
+        print('시세 실패', chunk[0], e)
+        continue
+    for t in chunk:
+        try:
+            s = df[t]['Close'].dropna()
+            m = price_metrics([x.date() for x in s.index], s.astype(float).tolist())
+            if m:
+                prices[str(tickers[t])] = m
+        except KeyError:
+            pass
+    time.sleep(2)
 save('prices.json', prices)
 print('시세', len(prices))

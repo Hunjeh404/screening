@@ -1,2 +1,2 @@
 requests
-finance-datareader
+yfinance

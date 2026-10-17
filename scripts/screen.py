@@ -11,20 +11,18 @@ CACHE = sys.argv[1] if len(sys.argv) > 1 else 'data/cache'
 OUT = sys.argv[2] if len(sys.argv) > 2 else 'docs/data.json'
 load = lambda n: json.load(open(f'{CACHE}/{n}', encoding='utf-8'))
 
-listing, corp, induty, fin, prices = (load(n) for n in
-    ('listing.json', 'corp.json', 'induty.json', 'fin.json', 'prices.json'))
+listing, sic, fin, prices = (load(n) for n in ('listing.json', 'sic.json', 'fin.json', 'prices.json'))
 
 stocks = []
-for code, info in listing.items():
-    cc = corp.get(code)
-    if not cc or cc not in fin:
+for cik, info in listing.items():
+    if cik not in fin:
         continue
-    a = analyze(fin[cc], prices.get(code), info['shares'], info['marcap'])
+    a = analyze(fin[cik], prices.get(cik), fin[cik].get('shares'))
     if not a:
         continue
-    stocks.append({'code': code, 'name': info['name'], 'market': info['market'],
-                   'fin': induty.get(cc, '')[:2] in ('64', '65', '66'),
-                   'marcap': info['marcap'], **a})
+    code = str(sic.get(cik, ''))
+    stocks.append({'code': info['ticker'], 'name': info['name'], 'market': info['exchange'],
+                   'fin': code[:2] in ('60', '61', '62', '63', '64', '67'), **a})
 
 # 실적 발표가 늦어 최신 분기가 2분기 이상 뒤처진 종목은 신고가 판정에서 제외
 newest = max(s['latest_q'] for s in stocks)

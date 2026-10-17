@@ -1,7 +1,7 @@
 name: daily-screen
 on:
   schedule:
-    - cron: '47 8 * * 1-5'   # 평일 17:47 (한국시간)
+    - cron: '47 22 * * 1-5'   # 화~토 07:47 (한국시간), 미국 장 마감 후
   workflow_dispatch:
 permissions:
   contents: write
@@ -21,8 +21,6 @@ jobs:
           key: cache-${{ github.run_id }}
           restore-keys: cache-
       - run: python scripts/fetch.py
-        env:
-          DART_API_KEY: ${{ secrets.DART_API_KEY }}
       - run: python scripts/screen.py
       - run: |
           git config user.name "github-actions"
