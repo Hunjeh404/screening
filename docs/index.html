@@ -35,9 +35,9 @@ details.filters summary{cursor:pointer;padding:10px 0;font-weight:600}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
 .card:hover{border-color:var(--accent2)}
 .card.bull,.card.bull:hover{border:1.5px solid var(--bull);box-shadow:0 0 0 1px var(--bull) inset}
-.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.name{font-weight:600;font-size:16px}
-.code{color:var(--sub);font:500 12px 'IBM Plex Mono',monospace}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-width:0}
+.name{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.code{color:var(--sub);font:500 12px 'IBM Plex Mono',monospace;flex-shrink:0}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 .chip{background:var(--chip);color:var(--accent);border-radius:999px;padding:2px 9px;font-size:12px}
 .chip.muted{color:var(--sub)}
@@ -91,7 +91,6 @@ svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
   <div class="bar">
     <input id="q" placeholder="회사명·티커 검색">
     <select id="sort">
-      <option value="graham_disc">그레이엄 할인율 높은 순</option>
       <option value="roe3">ROE 높은 순</option>
       <option value="perRatio">PER/중앙값 낮은 순</option>
       <option value="dd52">52주 고점 대비 하락 큰 순</option>
@@ -175,23 +174,21 @@ function bars(labels, vals, color) {
 }
 
 function card(s) {
-  const chips = [];
+  const chips = [`<span class="chip muted">${s.market}</span>`];
   if (s.rev_q && s.rev_ttm) chips.push('<span class="chip">매출 신고가</span>');
   if (s.op_q && s.op_ttm) chips.push('<span class="chip">영업이익 신고가</span>');
-  if (s.fin) chips.push('<span class="chip muted">금융업</span>');
   const o = obv(s, OBV_WEEKS);
   if (o && o.bull) chips.push(`<span class="chip" style="color:var(--bull)">OBV 매집 ${o.n}주</span>`);
   if (s.share_warn) chips.push('<span class="chip muted">주식 수 확인 불가로 시총·PER·PBR 계산 제외</span>');
-  const g = s.graham_disc;
   const m = (k, v, cls = '') => `<div class="m"><span>${k}</span><b class="${cls}">${v}</b></div>`;
   return `<div class="card${o && o.bull ? ' bull' : ''}" onclick="this.classList.toggle('open')">
-    <div class="top"><span class="name">${s.name}</span><span class="code">${s.code} · ${s.market} · ${s.latest_q}</span></div>
+    <div class="top"><span class="name">${s.name}</span><span class="code">${s.code}</span></div>
     <div class="chips">${chips.join('')}</div>
     <div class="grid">
       ${m('ROE 3년', unit(s.roe3, '%'))}
       ${s.fin ? m('PBR', unit(s.pbr, '배', 2)) : m('부채비율', unit(s.debt, '%', 0))}
       ${m('PER / 5년 중앙', num(s.per) + ' / ' + num(s.per_med5))}
-      ${m('그레이엄 할인', unit(g, '%'), g != null && g < 0 ? 'neg' : '')}
+      ${m('최근 재무', s.latest_q)}
       ${m('52주 고점 대비', unit(s.dd52, '%'))}
       ${m('시총', bil(s.marcap))}
     </div>
