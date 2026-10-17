@@ -9,7 +9,7 @@ DUR_TAGS = {
     'op': ['OperatingIncomeLoss'],
     'pretax': ['IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
                'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments'],
-    'ni': ['NetIncomeLoss', 'ProfitLoss'],
+    'ni': ['NetIncomeLoss', 'NetIncomeLossAvailableToCommonStockholdersBasic', 'ProfitLoss'],  # ProfitLoss는 비지배지분 포함이라 마지막
 }
 INST_TAGS = {
     'equity': ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'],
