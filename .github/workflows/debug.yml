@@ -1,0 +1,20 @@
+name: debug
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s -A "$UA" https://data.sec.gov/api/xbrl/companyfacts/CIK0000021344.json -o ko.json
+          python3 - <<'PY'
+          import json
+          f=json.load(open('ko.json'))['facts']['us-gaap']
+          out=[]
+          for t in ('Revenues','RevenueFromContractWithCustomerExcludingAssessedTax','OperatingIncomeLoss'):
+              for e in f.get(t,{}).get('units',{}).get('USD',[]):
+                  if e['end']>='2026-01-01':
+                      out.append(f"{t[:12]} {e.get('start')}~{e['end']} {e['form']} {e['filed']} {e['val']}")
+          print('::warning title=ko::'+' | '.join(out)[:3500])
+          PY
+        env:
+          UA: ${{ secrets.SEC_USER_AGENT }}
