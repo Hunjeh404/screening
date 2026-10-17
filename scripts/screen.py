@@ -1,0 +1,41 @@
+"""캐시된 재무·시세로 종목별 지표를 계산해 docs/data.json 생성."""
+import datetime as dt
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+from lib import analyze, shift_label
+
+CACHE = sys.argv[1] if len(sys.argv) > 1 else 'data/cache'
+OUT = sys.argv[2] if len(sys.argv) > 2 else 'docs/data.json'
+load = lambda n: json.load(open(f'{CACHE}/{n}', encoding='utf-8'))
+
+listing, corp, induty, fin, prices = (load(n) for n in
+    ('listing.json', 'corp.json', 'induty.json', 'fin.json', 'prices.json'))
+
+stocks = []
+for code, info in listing.items():
+    cc = corp.get(code)
+    if not cc or cc not in fin:
+        continue
+    a = analyze(fin[cc], prices.get(code), info['shares'], info['marcap'])
+    if not a:
+        continue
+    stocks.append({'code': code, 'name': info['name'], 'market': info['market'],
+                   'fin': induty.get(cc, '')[:2] in ('64', '65', '66'),
+                   'marcap': info['marcap'], **a})
+
+# 실적 발표가 늦어 최신 분기가 2분기 이상 뒤처진 종목은 신고가 판정에서 제외
+newest = max(s['latest_q'] for s in stocks)
+fresh = shift_label(newest, -1)
+for s in stocks:
+    s['stale'] = s['latest_q'] < fresh
+    s['record'] = not s['stale'] and ((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
+
+meta = {'generated': dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d %H:%M'),
+        'sample': os.path.exists(f'{CACHE}/SAMPLE'), 'count': len(stocks), 'newest_q': newest}
+os.makedirs(os.path.dirname(OUT), exist_ok=True)
+json.dump({'meta': meta, 'stocks': stocks}, open(OUT, 'w', encoding='utf-8'),
+          ensure_ascii=False, separators=(',', ':'))
+print(f"{len(stocks)}종목, 실적 신고가 {sum(s['record'] for s in stocks)}종목 -> {OUT}")

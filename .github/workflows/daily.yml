@@ -1,0 +1,32 @@
+name: daily-screen
+on:
+  schedule:
+    - cron: '47 8 * * 1-5'   # 평일 17:47 (한국시간)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: cache-${{ github.run_id }}
+          restore-keys: cache-
+      - run: python scripts/fetch.py
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      - run: python scripts/screen.py
+      - run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add docs/data.json
+          git diff --cached --quiet || git commit -m "data: $(date +%F)"
+          git push

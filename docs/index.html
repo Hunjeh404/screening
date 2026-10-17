@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실적 신고가 스크리너</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b1513;--panel:#11201d;--line:#1f3631;--text:#e3efec;--sub:#87a39c;
+  --accent:#5fe0c2;--accent2:#3a9e88;--warn:#e8796b;--chip:#183029;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 'IBM Plex Sans KR',system-ui,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0 0 2px}
+.meta{color:var(--sub);font-size:13px}
+.banner{background:#3a2a12;color:#f3cf8c;border:1px solid #6b5021;border-radius:10px;padding:10px 12px;margin:14px 0;font-size:13px}
+details.filters{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:16px 0;padding:4px 14px}
+details.filters summary{cursor:pointer;padding:10px 0;font-weight:600}
+.group{border-top:1px solid var(--line);padding:12px 0}
+.group h3{font-size:13px;color:var(--accent);margin:0 0 8px;font-weight:600}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 0;font-size:14px}
+.row input[type=number]{width:84px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:500 14px 'IBM Plex Mono',monospace;text-align:right}
+.row input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent)}
+.note{color:var(--sub);font-size:12px;margin:2px 0 0}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 12px}
+.bar input,.bar select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:inherit}
+.bar input{flex:1;min-width:140px}
+.count{color:var(--sub);font-size:13px;margin-bottom:10px}
+.count b{color:var(--accent);font-weight:600}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}
+.card:hover{border-color:var(--accent2)}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.name{font-weight:600;font-size:16px}
+.code{color:var(--sub);font:500 12px 'IBM Plex Mono',monospace}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.chip{background:var(--chip);color:var(--accent);border-radius:999px;padding:2px 9px;font-size:12px}
+.chip.muted{color:var(--sub)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 12px}
+.m span{display:block;color:var(--sub);font-size:11.5px}
+.m b{font:500 14px 'IBM Plex Mono',monospace}
+.neg{color:var(--warn)}
+.detail{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:none}
+.card.open .detail{display:block}
+.detail h4{font-size:12.5px;color:var(--sub);margin:8px 0 4px;font-weight:400}
+svg text{fill:var(--sub);font:10px 'IBM Plex Mono',monospace}
+.empty{color:var(--sub);text-align:center;padding:40px 0}
+@media (min-width:700px){.grid{grid-template-columns:repeat(6,1fr)}.cols{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>실적 신고가 스크리너</h1>
+  <div class="meta" id="meta">불러오는 중…</div>
+  <div id="banner"></div>
+
+  <details class="filters" open>
+    <summary>필터 조건</summary>
+    <div class="group">
+      <h3>실적 신고가 (항상 적용)</h3>
+      <p class="note">매출 또는 영업이익이 직전 분기 기준 사상 최고이면서 최근 4분기 합계도 사상 최고. 최신 분기가 2분기 이상 늦은 종목은 제외.</p>
+    </div>
+    <div class="cols">
+      <div class="group">
+        <h3>일반 기업</h3>
+        <div class="row">3년 평균 ROE ≥ (%)<input type="number" id="roeMin" value="12" step="1"></div>
+        <div class="row">부채비율 ≤ (%)<input type="number" id="debtMax" value="100" step="10"></div>
+        <div class="row">최근 5년 영업적자 없음<input type="checkbox" id="nolos" checked></div>
+        <div class="row">PER이 5년 중앙값보다 낮음<input type="checkbox" id="perLow" checked></div>
+      </div>
+      <div class="group">
+        <h3>금융업 (은행·증권·보험)</h3>
+        <div class="row">PBR ≤ (배)<input type="number" id="pbrMax" value="1" step="0.1"></div>
+        <div class="row">3년 평균 ROE ≥ (%)<input type="number" id="finRoeMin" value="8" step="1"></div>
+      </div>
+    </div>
+    <div class="group">
+      <h3>차트 보조</h3>
+      <div class="row">적용<input type="checkbox" id="chartOn" checked></div>
+      <p class="note">종가가 120일선 또는 240일선 위, 최근 20일 변동성이 60일 변동성보다 작음.</p>
+    </div>
+  </details>
+
+  <div class="bar">
+    <input id="q" placeholder="종목명·코드 검색">
+    <select id="sort">
+      <option value="graham_disc">그레이엄 할인율 높은 순</option>
+      <option value="roe3">ROE 높은 순</option>
+      <option value="perRatio">PER/중앙값 낮은 순</option>
+      <option value="dd52">52주 고점 대비 하락 큰 순</option>
+      <option value="marcap">시가총액 큰 순</option>
+    </select>
+  </div>
+  <div class="count" id="count"></div>
+  <div id="list"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let DATA = null;
+const num = (v, d = 1) => v == null ? '–' : v.toLocaleString('ko-KR', {maximumFractionDigits: d, minimumFractionDigits: d});
+const eok = v => v == null ? '–' : Math.round(v / 1e8).toLocaleString('ko-KR');
+
+function cfg() {
+  return {roeMin: +$('roeMin').value, debtMax: +$('debtMax').value, nolos: $('nolos').checked,
+          perLow: $('perLow').checked, pbrMax: +$('pbrMax').value, finRoeMin: +$('finRoeMin').value,
+          chartOn: $('chartOn').checked};
+}
+
+function pass(s, c) {
+  if (!s.record) return false;
+  if (s.fin) {
+    if (s.pbr == null || s.pbr > c.pbrMax) return false;
+    if (s.roe3 == null || s.roe3 < c.finRoeMin) return false;
+  } else {
+    if (s.roe3 == null || s.roe3 < c.roeMin) return false;
+    if (s.debt == null || s.debt > c.debtMax) return false;
+    if (c.nolos && !s.nolos5) return false;
+    if (c.perLow && !(s.per != null && s.per_med5 != null && s.per < s.per_med5)) return false;
+  }
+  if (c.chartOn && !((s.above120 || s.above240) && s.vol_down)) return false;
+  return true;
+}
+
+function bars(labels, vals, color) {
+  const W = 320, H = 92, pad = 14, n = vals.length, bw = (W - 8) / n;
+  const nums = vals.filter(v => v != null);
+  const max = Math.max(0, ...nums), min = Math.min(0, ...nums), span = (max - min) || 1;
+  const y = v => pad + (max - v) / span * (H - pad * 2);
+  let g = '';
+  vals.forEach((v, i) => {
+    if (v == null) return;
+    const x = 4 + i * bw + bw * 0.15, top = Math.min(y(v), y(0)), h = Math.max(1, Math.abs(y(v) - y(0)));
+    const fill = v < 0 ? 'var(--warn)' : (i === n - 1 ? color : 'var(--accent2)');
+    g += `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${(bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}"/>`;
+  });
+  g += `<text x="4" y="${H - 1}">${labels[0]}</text><text x="${W - 4}" y="${H - 1}" text-anchor="end">${labels[n - 1]}</text>`;
+  g += `<text x="${W - 4}" y="10" text-anchor="end">최근 ${eok(vals[n - 1])}억</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:420px">${g}</svg>`;
+}
+
+function card(s) {
+  const chips = [];
+  if (s.rev_q && s.rev_ttm) chips.push('<span class="chip">매출 신고가</span>');
+  if (s.op_q && s.op_ttm) chips.push('<span class="chip">영업이익 신고가</span>');
+  if (s.fin) chips.push('<span class="chip muted">금융업</span>');
+  if ((s.above120 || s.above240) && s.vol_down) chips.push('<span class="chip">차트 조건 충족</span>');
+  const g = s.graham_disc;
+  const m = (k, v, cls = '') => `<div class="m"><span>${k}</span><b class="${cls}">${v}</b></div>`;
+  return `<div class="card" onclick="this.classList.toggle('open')">
+    <div class="top"><span class="name">${s.name}</span><span class="code">${s.code} · ${s.market} · ${s.latest_q}</span></div>
+    <div class="chips">${chips.join('')}</div>
+    <div class="grid">
+      ${m('ROE 3년', num(s.roe3) + '%')}
+      ${s.fin ? m('PBR', num(s.pbr, 2) + '배') : m('부채비율', num(s.debt, 0) + '%')}
+      ${m('PER / 5년 중앙', num(s.per) + ' / ' + num(s.per_med5))}
+      ${m('그레이엄 할인', num(g) + '%', g != null && g < 0 ? 'neg' : '')}
+      ${m('52주 고점 대비', num(s.dd52) + '%')}
+      ${m('시총', eok(s.marcap) + '억')}
+    </div>
+    <div class="detail">
+      <h4>분기 매출 (억원)</h4>${bars(s.q.labels, s.q.rev, 'var(--accent)')}
+      <h4>분기 영업이익 (억원)</h4>${bars(s.q.labels, s.q.op, 'var(--accent)')}
+      <p class="note">5년 영업적자 없음: ${s.nolos5 ? '예' : '아니오'} · 120일선 위: ${s.above120 ? '예' : '아니오'} · 240일선 위: ${s.above240 ? '예' : '아니오'} · 변동성 축소: ${s.vol_down ? '예' : '아니오'}</p>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const c = cfg(), q = $('q').value.trim(), key = $('sort').value;
+  const rec = DATA.stocks.filter(s => s.record);
+  let list = rec.filter(s => pass(s, c));
+  if (q) list = list.filter(s => s.name.includes(q) || s.code.includes(q));
+  const val = s => key === 'perRatio' ? (s.per && s.per_med5 ? s.per / s.per_med5 : null) : s[key];
+  const asc = key === 'perRatio' || key === 'dd52';
+  list.sort((a, b) => {
+    const x = val(a), y = val(b);
+    if (x == null) return 1; if (y == null) return -1;
+    return asc ? x - y : y - x;
+  });
+  $('count').innerHTML = `전체 ${DATA.meta.count.toLocaleString()}종목 · 실적 신고가 ${rec.length}종목 · 조건 통과 <b>${list.length}종목</b>`;
+  $('list').innerHTML = list.length ? list.map(card).join('') : '<div class="empty">조건을 통과한 종목이 없습니다</div>';
+}
+
+fetch('data.json', {cache: 'no-store'}).then(r => r.json()).then(d => {
+  DATA = d;
+  $('meta').textContent = `기준 ${d.meta.generated} · 최신 분기 ${d.meta.newest_q} · 투자 판단의 책임은 본인에게 있습니다`;
+  if (d.meta.sample) $('banner').innerHTML = '<div class="banner">지금 보이는 것은 가상의 샘플 데이터입니다. GitHub Actions가 처음 실행되면 실제 데이터로 바뀝니다.</div>';
+  document.querySelectorAll('input,select').forEach(e => e.addEventListener('input', render));
+  render();
+}).catch(() => { $('meta').textContent = 'data.json을 불러오지 못했습니다'; });
+</script>
+</body>
+</html>
