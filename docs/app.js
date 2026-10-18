@@ -68,7 +68,7 @@ function tagReasons(s,tag) {
     case '패닉셀': return ['20일 RSI의 12일 EMA ≤ 30',`현재 지표값 ${num(h.panic_rsi)}`,`현재가 ${price(s.close)}`];
     case '적자': return ['최근 4분기 합산 순이익 또는 영업이익이 음수',...losses];
     case '추세이탈': return ['두 장기 이평선의 98%를 모두 하회',...ma,`이탈 기준 ${price(s.ma120==null?null:s.ma120*.98)} · ${price(s.ma200==null?null:s.ma200*.98)}`];
-    case '수급악화': return ['52주 주봉 OBV 다이버전스 이탈',`현재 판정: ${s.obv_signal||'자료 없음'}`,`확보 주봉 ${s.wk?.c?.length??0}개`];
+    case '수급악화': return ['끝난 주봉 52주 OBV 다이버전스 이탈',`현재 판정: ${s.obv_signal||'자료 없음'}`,`확보 주봉 ${s.wk?.c?.length??0}개`];
     case '투매': return ['변동성 확대 + 20일선 하회 + 당일 −7% 이하',vol,`현재가 ${price(s.close)} · 20일선 ${price(s.ma20)}`,`당일 등락률 ${signed(s.change_pct)}`];
     case '피크아웃': return ['TTM 매출·영업이익 동반 감소',...totals];
     case '적자전환': {
@@ -83,7 +83,6 @@ function tagReasons(s,tag) {
       }
       return lines.length?lines:[`최근 분기 영업이익 ${mil(s.latest_op)}`,`ROE ${unit(s.roe3,'%')} · 부채비율 ${unit(s.debt,'%')}`];
     }
-    case '공시지연': return ['시장 내 최신 재무분기보다 2분기 이상 지연',`종목 기준 ${s.latest_q||'–'} · 시장 최신 ${DATA?.meta?.newest_q||'–'}`];
     case '상승중': return ['변동성 확대·유지 중 20일선 이상',vol,`현재가 ${price(s.close)} · 20일선 ${price(s.ma20)}`];
     case '적정가치': return s.fin?['금융업 PBR > 1배',`PBR ${unit(s.pbr,'배',2)}`]:['PER이 5년 중앙값 이상',`PER ${num(s.per)} · 5년 중앙값 ${num(s.per_med5)}`];
     case '눌림목': return ['변동성 확대·유지 중 20일선 하회',vol,`현재가 ${price(s.close)} · 20일선 ${price(s.ma20)}`,`당일 등락률 ${signed(s.change_pct)} · 고평가 전환 조건 미충족`];

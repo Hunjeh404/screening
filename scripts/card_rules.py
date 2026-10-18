@@ -8,6 +8,8 @@ from pathlib import Path
 SCHEMA_VERSION = 2
 # 적자 턴어라운드 F-스코어 통과 점수: 미국 9개 항목 중 7점, 한국 6개 항목 중 5점
 FSCORE_NEED = {9: 7, 6: 5}
+# 이동평균 조건(매수: 종가 ≥ 120·200일선 중 하나, 매도: 추세이탈) 사용 여부. 백테스트 비교용
+USE_MA = True
 # 매도 상태로 보여 주는 갱신일 수. 이를 넘기면 이력까지 지운다
 SELL_KEEP_DAYS = 5
 # 최근 4분기 영업이익의 1년 전 대비 허용 감소폭
@@ -46,10 +48,17 @@ def calc_card_metrics(close, ma120, ma200, per, med_per_5y, pbr, is_finance, mca
 
 
 def obv_signal(w):
-    """52개 주간 변화가 있는 경우에만 기존 정규화 OBV 판정을 적용한다."""
-    if not w or len(w.get('c', [])) < 53 or len(w.get('v', [])) < 53:
+    """끝난 주봉 52주의 주가·OBV 변화를 각각 '평균 주간 변동폭 × √52'로 나눠 비교한다.
+    무작위 움직임의 누적 폭이 대략 √52배이므로, ±1을 넘으면 우연이 아닌 뚜렷한 움직임으로 본다.
+    아직 끝나지 않은 이번 주는 빼서 신호가 주 1회만 바뀌게 한다."""
+    if not w:
         return None
-    c, v = w['c'][-53:], w['v'][-53:]
+    c, v = w.get('c', []), w.get('v', [])
+    if not w.get('complete', True):
+        c, v = c[:-1], v[:-1]
+    if len(c) < 53 or len(v) < 53:
+        return None
+    c, v = c[-53:], v[-53:]
     if not all(positive(x) for x in c) or not all(valid(x) and x >= 0 for x in v):
         return None
     changes = [(1 if c[i] > c[i-1] else -1 if c[i] < c[i-1] else 0) * v[i] for i in range(1, 53)]
@@ -57,7 +66,8 @@ def obv_signal(w):
     sum_d = sum(abs(x) for x in changes)
     if not sum_r or not sum_d:
         return '중립'
-    pz, oz = (c[-1] / c[0] - 1) / (sum_r / 52), sum(changes) / (sum_d / 52)
+    scale = math.sqrt(52)
+    pz, oz = (c[-1] / c[0] - 1) / (sum_r / 52 * scale), sum(changes) / (sum_d / 52 * scale)
     if (pz < -1 and oz < pz) or (oz < -1 and pz >= -1):
         return '이탈'
     return '매집' if oz > 1 and pz <= 1 else '중립'
@@ -100,9 +110,9 @@ def fscore_ok(s):
 
 def buy_eligible(s):
     c, a, b = (s.get(k) for k in ('close', 'ma120', 'ma200'))
-    if not all(positive(x) for x in (c, a, b)) or not s.get('record') or s.get('stale'):
+    if not all(positive(x) for x in (c, a, b)) or not s.get('record'):
         return False
-    if not ((c >= a or c >= b) and s.get('vol_down')) or s.get('obv_signal') == '이탈':
+    if not ((not USE_MA or c >= a or c >= b) and s.get('vol_down')) or s.get('obv_signal') == '이탈':
         return False
     if s.get('fin'):
         return (positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10
@@ -122,7 +132,7 @@ def peak_out(s):
 def sell_reasons(s, entry=None):
     reasons = []
     c, a, b = (s.get(k) for k in ('close', 'ma120', 'ma200'))
-    if all(positive(x) for x in (c, a, b)) and c < a * .98 and c < b * .98:
+    if USE_MA and all(positive(x) for x in (c, a, b)) and c < a * .98 and c < b * .98:
         reasons.append('추세이탈')
     if s.get('obv_signal') == '이탈':
         reasons.append('수급악화')
@@ -140,8 +150,6 @@ def sell_reasons(s, entry=None):
         bad = (valid(op) and op < 0) or (valid(roe) and roe < 12) or (valid(debt) and debt > 70)
     if bad:
         reasons.append('적자전환')
-    if s.get('stale'):
-        reasons.append('공시지연')
     return reasons
 
 

@@ -111,6 +111,33 @@ class RuleTest(unittest.TestCase):
         s=stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9);s.update(op_q=False,fscore=6);self.assertNotIn('실적유지',hold_reasons(s))
         self.assertIn('흑자 연수 미달',hold_reasons(stock(profit_years=3)))
 
+    def test_obv_ignores_noise_and_unfinished_week(self):
+        import random
+        random.seed(3)
+        noisy=0
+        for _ in range(200):  # 무작위 등락만으로는 이탈 신호가 거의 나지 않아야 한다
+            c=[100.]
+            for _ in range(52): c.append(c[-1]*(1+random.gauss(0,.03)))
+            v=[random.randint(1,100) for _ in c]
+            noisy+=obv_signal({'c':c,'v':v})=='이탈'
+        self.assertLess(noisy,30)
+        falling={'c':list(range(153,100,-1)),'v':[1]*53}
+        self.assertEqual(obv_signal({**falling,'complete':True}),'이탈')
+        # 끝나지 않은 주는 빼므로 53개가 안 되면 판정하지 않는다
+        self.assertIsNone(obv_signal({**falling,'complete':False}))
+        self.assertEqual(obv_signal({'c':falling['c']+[999],'v':falling['v']+[10**9],'complete':False}),'이탈')
+    def test_no_disclosure_delay_rule(self):
+        self.assertTrue(buy_eligible(stock(stale=True)))
+        self.assertNotIn('공시지연',sell_reasons(stock(stale=True)))
+    def test_ma_switch(self):
+        import card_rules
+        s=stock(close=70)
+        self.assertFalse(buy_eligible(s));self.assertIn('추세이탈',sell_reasons(s))
+        card_rules.USE_MA=False
+        try:
+            self.assertTrue(buy_eligible(s));self.assertNotIn('추세이탈',sell_reasons(s))
+        finally:
+            card_rules.USE_MA=True
     def test_obv_exclusion_and_full_period(self):
         s=stock(obv_signal='이탈');self.assertFalse(buy_eligible(s))
         self.assertIsNone(obv_signal({'c':[100]*52,'v':[1]*52}))
@@ -125,7 +152,7 @@ class RuleTest(unittest.TestCase):
                    ({'vol20':.03,'close':97,'change_pct':-7},'투매'),
                    ({'rev_ttm_value':300,'op_ttm_value':40},'피크아웃'),
                    ({'latest_op':-1},'적자전환'),({'roe3':11.9},'적자전환'),
-                   ({'debt':70.1},'적자전환'),({'stale':True},'공시지연')]
+                   ({'debt':70.1},'적자전환')]
         for changes,reason in scenarios:
             with self.subTest(changes=changes):self.assertIn(reason,sell_reasons(stock(**changes)))
     def test_sell_boundaries(self):

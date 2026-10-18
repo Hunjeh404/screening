@@ -5,7 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from lib import analyze, shift_label
+from lib import analyze
 from card_rules import persist_cards, write_json, SCHEMA_VERSION
 from lib_kr import to_ext
 
@@ -34,16 +34,13 @@ for code, info in listing.items():
                    'name': info['name'], 'market': info['market'],
                    'fin': induty.get(cc, '')[:2] in ('64', '65', '66'), **a})
 
-# 실적 발표가 늦어 최신 분기가 2분기 이상 뒤처진 종목은 신고가 판정에서 제외
 if not stocks:
     raise SystemExit('분석 가능한 종목이 없어 기존 데이터와 이력을 보존합니다')
 if not any(s.get('ma200') for s in stocks):
     raise SystemExit('200일선 시세를 먼저 새로 수집해야 합니다')
 newest = max(s['latest_q'] for s in stocks)
-fresh = shift_label(newest, -1)
 for s in stocks:
-    s['stale'] = s['latest_q'] < fresh
-    s['record'] = not s['stale'] and ((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
+    s['record'] = bool((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
     s['wk'] = prices.get(s['code'], {}).get('wk')
     s['mcap_b'] = s['marcap'] / rate / 1e9 if s['marcap'] is not None and rate else None
 

@@ -5,7 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from lib import analyze, shift_label
+from lib import analyze
 from card_rules import persist_cards, write_json, SCHEMA_VERSION
 
 CACHE = sys.argv[1] if len(sys.argv) > 1 else 'data/cache'
@@ -25,16 +25,13 @@ for cik, info in listing.items():
     stocks.append({'_cik': cik, 'code': info['ticker'], 'name': info['name'], 'market': info['exchange'],
                    'fin': code[:2] in ('60', '61', '62', '63', '64', '67'), **a})
 
-# 실적 발표가 늦어 최신 분기가 2분기 이상 뒤처진 종목은 신고가 판정에서 제외
 if not stocks:
     raise SystemExit('분석 가능한 종목이 없어 기존 데이터와 이력을 보존합니다')
 if not any(s.get('ma200') for s in stocks):
     raise SystemExit('200일선 시세를 먼저 새로 수집해야 합니다')
 newest = max(s['latest_q'] for s in stocks)
-fresh = shift_label(newest, -1)
 for s in stocks:
-    s['stale'] = s['latest_q'] < fresh
-    s['record'] = not s['stale'] and ((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
+    s['record'] = bool((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
     # 매수 조건에서 벗어난 이력 종목도 OBV 매도 판정 대상이다.
     cik = s.pop('_cik')
     s['wk'] = prices.get(cik, {}).get('wk')

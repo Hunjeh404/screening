@@ -225,7 +225,9 @@ def weekly(dates, closes, vols, keep=105):
             wc.append(c); wv.append(0); key = k
         wc[-1] = c
         wv[-1] += v or 0
-    return {'c': [float(f'{x:.5g}') for x in wc[-keep:]], 'v': [int(x) for x in wv[-keep:]]}
+    # 마지막 주는 금요일 종가까지 있어야 끝난 주봉 (OBV 판정은 끝난 주봉만 쓴다)
+    return {'c': [float(f'{x:.5g}') for x in wc[-keep:]], 'v': [int(x) for x in wv[-keep:]],
+            'complete': bool(dates) and dates[-1].weekday() == 4}
 
 
 def price_metrics(dates, closes, vols=None, highs=None, lows=None):

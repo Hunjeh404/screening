@@ -49,35 +49,52 @@ class BookTest(unittest.TestCase):
             book.morning(k, bar)
             book.evening(k, bar, cards, newly)
 
-    def test_half_buy_addon_targets_bull_and_fixed_stop(self):
-        b = bt.Book(5, cost=0)
+    def scenario(self):
         A = lambda o, h, l, c: {'A': (o, h, l, c)}
-        self.run_days(b, [
-            ({}, {'A': card('A')}, ['A']),                                    # 매수 카드 등록 -> 다음 날 50%
-            (A(100, 101, 99, 100), {'A': card('A', age=0)}, []),               # 50% 매수, ▲ -> 다음 날 나머지
-            (A(100, 111, 100, 110), {'A': card('A', bull=True)}, []),          # 추가 매수, 1차 목표(110) 50% 매도, 초강세
-            (A(110, 125, 80, 120), {'A': card('A', state='HOLD')}, []),        # 초강세라 손절·2차 목표 쉼
-            (A(118, 119, 96, 115), {'A': card('A', state='HOLD')}, []),        # 손절선은 매수가 100 기준 95로 고정
-            (A(115, 116, 94, 100), {'A': card('A', state='HOLD')}, []),        # 저가 94 -> 95에 손절
-        ])
+        return [
+            ({}, {'A': card('A')}, ['A']),                                    # 매수 카드 등록 -> 다음 날 20%
+            (A(100, 101, 99, 100), {'A': card('A', age=0)}, []),               # 20% 매수, ▲ -> 다음 날 10% 추가
+            (A(100, 111, 100, 110), {'A': card('A', bull=True)}, []),          # 추가 매수, 1차 목표(110) 도달, 초강세
+            (A(110, 125, 96, 120), {'A': card('A', state='HOLD')}, []),        # 초강세: 목표가 매도 쉼, 2차 목표(120) 도달
+            (A(120, 121, 118, 119), {'A': card('A', state='HOLD')}, []),
+            (A(100, 100, 94, 95), {'A': card('A', state='HOLD')}, []),         # 손절선 95(매수가 100 기준)
+        ]
+
+    def test_target_trailing_stops_and_fixed_stop(self):
+        b = bt.Book(5, ts=True, cost=0)
+        self.run_days(b, self.scenario())
         self.assertEqual(b.pos, {})
-        tr = b.closed[0]
-        self.assertEqual(tr['events'], '50%매수>추가매수>1차목표>손절')
-        # 0.1씩 두 번(100에) 산 물량 중 절반 110에, 나머지 손절선 95에 매도
-        sh = .1 / 100 + .1 / 100
-        self.assertAlmostEqual(b.cash, 1 - .2 + sh / 2 * 110 + sh / 2 * 95)
+        self.assertEqual(b.closed[0]['events'], '매수>추가매수>1차목표>2차목표>1차 TS매도>2차 TS매도>손절')
+        sh = .2 / 100 + .1 / 100
+        # 최고가 125 기준 -5% = 118.75에서 50%·25%가 팔리고, 남은 25%는 손절선 95
+        self.assertAlmostEqual(b.cash, 1 - .3 + sh * .5 * 118.75 + sh * .25 * 118.75 + sh * .25 * 95)
+
+    def test_target_immediate_sale(self):
+        b = bt.Book(5, ts=False, cost=0)
+        self.run_days(b, self.scenario())
+        self.assertEqual(b.closed[0]['events'], '매수>추가매수>1차목표>2차목표>손절')
+        sh = .2 / 100 + .1 / 100
+        self.assertAlmostEqual(b.cash, 1 - .3 + sh * .5 * 110 + sh * .25 * 120 + sh * .25 * 95)
+
+    def test_stop_works_even_in_super_bull(self):
+        b = bt.Book(5, cost=0)
+        self.run_days(b, [({}, {'A': card('A', bull=True)}, ['A']),
+                          ({'A': (100, 100, 100, 100)}, {'A': card('A', bull=True)}, []),
+                          ({'A': (99, 99, 90, 92)}, {'A': card('A', bull=True)}, [])])
+        self.assertEqual(b.closed[0]['exit'], '손절')
+        self.assertAlmostEqual(b.cash, 1 - .2 + .2 / 100 * 95)
 
     def test_sell_card_market_exit_and_gap(self):
         b = bt.Book(5, cost=0)
         self.run_days(b, [
-            ({}, {'A': card('A', age=1)}, ['A']),                              # ▲와 함께 등록 -> 전량
+            ({}, {'A': card('A', age=1)}, ['A']),                              # ▲와 함께 등록 -> 30%
             ({'A': (100, 100, 100, 100)}, {'A': card('A', state='SELL')}, []),
-            ({'A': (90, 95, 90, 92)}, {}, []),
+            ({'A': (96, 97, 96, 96)}, {}, []),
         ])
         self.assertEqual(b.closed[0]['exit'], '매도카드()')
-        self.assertAlmostEqual(b.cash, 1 - .2 + .2 / 100 * 90)
+        self.assertAlmostEqual(b.cash, 1 - .3 + .3 / 100 * 96)
         b = bt.Book(5, cost=0)
-        self.run_days(b, [({}, {'A': card('A', age=0)}, ['A']),
+        self.run_days(b, [({}, {'A': card('A')}, ['A']),
                           ({'A': (100, 100, 100, 100)}, {'A': card('A')}, []),
                           ({'A': (90, 95, 88, 92)}, {'A': card('A')}, [])])   # 시가가 손절가(95) 아래 -> 시가 체결
         self.assertEqual(b.closed[0]['exit'], '손절')
@@ -89,8 +106,8 @@ class BookTest(unittest.TestCase):
         self.run_days(b, [({}, cards, ['A', 'B', 'C']),
                           ({t: (10, 10, 10, 10) for t in 'ABC'}, cards, [])])
         self.assertEqual(list(b.pos), ['C'])                                 # 손실률 작은 순, 같으면 1차 목표 큰 순
-        self.assertAlmostEqual(b.pos['C']['spent'], .5)
-        self.assertAlmostEqual(b.pos['C']['sh'], .5 / (10 * 1.001))
+        self.assertAlmostEqual(b.pos['C']['spent'], .2)
+        self.assertAlmostEqual(b.pos['C']['sh'], .2 / (10 * 1.001))
         self.assertEqual(b.orders, [])                                      # 꽉 차서 더 사지 않음
 
 
