@@ -40,7 +40,7 @@ function bars(labels = [], vals = [], color = 'var(--accent)') {
 const badge = (text, cls='') => `<span class="chip ${cls}">${esc(text)}</span>`;
 const metric = (label,value,cls='',extra='') => `<div class="m"><span>${esc(label)}</span><b class="${cls}">${esc(value)}</b>${extra?`<small>${esc(extra)}</small>`:''}</div>`;
 function card(s) {
-  const chips=[badge(s.latest_q,'muted')];
+  const chips=[badge([s.market,s.latest_q].filter(Boolean).join(' · '),'muted')];
   if(s.trend) chips.push(badge(s.trend));
   if(s.rev_q&&s.rev_ttm) chips.push(badge('매출 신고가'));
   if(s.op_q&&s.op_ttm) chips.push(badge('영업이익 신고가'));
@@ -50,8 +50,8 @@ function card(s) {
   if(s.data_missing) chips.push(badge('수집 지연 · 이전 데이터','sell'));
   const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},q=s.q||{};
   return `<details class="card${s.obv_signal==='매집'?' bull':''}">
-    <summary><div class="top"><div class="identity"><a class="name" href="${href}" aria-label="${esc(s.name)} TradingView 열기">${esc(s.name)}</a><a class="ticker" href="${href}">${esc(s.code)} · ${esc(s.market)}</a></div><div class="header-right"><span class="caret" aria-hidden="true">⌄</span><div class="distances">120선 ${signed(s.dist_ma120)}<br>200선 ${signed(s.dist_ma200)}</div></div></div><div class="chips">${chips.join('')}</div></summary>
-    <div class="detail"><div class="grid">
+    <summary><div class="top"><a class="name" href="${href}" aria-label="${esc(s.name)} TradingView 열기">${esc(s.name)}</a><a class="ticker" href="${href}">${esc(s.code)}</a></div><div class="chips">${chips.join('')}</div></summary>
+    <div class="detail"><div class="distances">120선 ${signed(s.dist_ma120)} · 200선 ${signed(s.dist_ma200)}</div><div class="grid">
       ${metric('현재가',price(s.close))}${metric('ROE 3년',unit(s.roe3,'%'))}${metric(s.fin?'PBR':'부채비율',s.fin?unit(s.pbr,'배',2):unit(s.debt,'%',1))}
       ${metric('PER (5년 중앙)',num(s.per)+' ('+num(s.per_med5)+')')}${metric('52주 고점 대비',unit(s.dd52,'%'))}${metric('시가총액',bil(s.marcap))}
       ${metric('120일선',price(s.ma120))}${metric('200일선',price(s.ma200))}${metric('20일선',price(s.ma20))}${metric('당일 등락률',signed(s.change_pct))}

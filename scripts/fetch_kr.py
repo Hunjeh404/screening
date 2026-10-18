@@ -15,7 +15,7 @@ import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
 from lib import price_metrics
-from lib_kr import parse_multi_acnt
+from dart_batches import fetch_batches
 
 KEY = os.environ.get('DART_API_KEY') or sys.exit('DART_API_KEY 시크릿이 없습니다')
 API = 'https://opendart.fss.or.kr/api'
@@ -31,7 +31,10 @@ def load(name, default):
 
 
 def save(name, obj):
-    json.dump(obj, open(f'{CACHE}/{name}', 'w', encoding='utf-8'), ensure_ascii=False)
+    path = f'{CACHE}/{name}'
+    with open(path + '.tmp', 'w', encoding='utf-8') as handle:
+        json.dump(obj, handle, ensure_ascii=False)
+    os.replace(path + '.tmp', path)
 
 
 class LimitReached(Exception):
@@ -54,6 +57,8 @@ def dart(path, **params):
     j = r.json()
     if j.get('status') == '020':
         raise LimitReached(j.get('message'))
+    if j.get('status') not in ('000', '013'):
+        raise RuntimeError(f"DART 오류 {j.get('status')}: {j.get('message')}")
     time.sleep(0.07)
     return j
 
@@ -94,19 +99,18 @@ try:
     # 4) 분기 재무: 과거는 캐시 재사용, 최근 2개 연도는 매번 다시 받음(정정공시 반영)
     today = dt.date.today()
     codes = sorted(set(corp.values()))
-    for y in range(FIRST_YEAR, today.year + 1):
+    for y in range(today.year, FIRST_YEAR - 1, -1):
         for q, rc in REPORTS.items():
             lab = f'{y}Q{q}'
             if dt.date(y, q * 3, 1) > today:
                 continue
             if lab in done and y < today.year - 1:
                 continue
-            for i in range(0, len(codes), 100):
-                j = dart('fnlttMultiAcnt.json', corp_code=','.join(codes[i:i + 100]),
-                         bsns_year=y, reprt_code=rc)
-                for cc, vals in parse_multi_acnt(j.get('list', []), q).items():
-                    if vals:
-                        fin.setdefault(cc, {})[lab] = vals
+            print('재무 조회 시작', lab, flush=True)
+            values = fetch_batches(codes, y, q, rc, today, CACHE, dart)
+            for cc, vals in values.items():
+                if vals:
+                    fin.setdefault(cc, {})[lab] = vals
             done.add(lab)
             save('fin2.json', fin)
             save('fin2_done.json', sorted(done))
@@ -118,6 +122,7 @@ except LimitReached as e:
     save('induty.json', induty)
     save('fin2.json', fin)
     save('fin2_done.json', sorted(done))
+    raise SystemExit('재무 수집이 완료되지 않아 기존 공개 데이터를 유지합니다')
 
 # 5) 시세 (6년치 종가 -> 지표만 저장)
 start = (dt.date.today() - dt.timedelta(days=365 * 6 + 30)).isoformat()
