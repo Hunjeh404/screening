@@ -194,13 +194,13 @@ class Book:
             p['events'].append('추가매수')
         else:
             m = o['metrics']
-            self.pos[t] = {'sh': q, 'spent': spent, 'proceeds': 0.0, 'entry': px, 'peak': px, 'last': px,
+            self.pos[t] = {'sh': q, 'spent': spent, 'proceeds': 0.0, 'entry': px, 'last': px,
                            'loss': m['expected_loss'], 't1': m['target_1'], 't2': m['target_2'],
                            't1_done': False, 't2_done': False, 'filled': o['frac'], 'day': k, 'bull': False,
                            'events': ['매수' if o['frac'] >= 1 else '50%매수']}
 
     def morning(self, k, bar):
-        """시가: 전날 신호 주문 체결(매도 먼저). 장중: 걸어 둔 트레일링 스탑·목표가 (초강세 구간이면 쉰다)"""
+        """시가: 전날 신호 주문 체결(매도 먼저). 장중: 걸어 둔 손절·목표가 (초강세 구간이면 쉰다)"""
         orders, self.orders = self.orders, []
         for o in orders:
             if o['side'] == 'sell' and o['t'] in self.pos and bar(o['t']):
@@ -213,9 +213,9 @@ class Book:
             if not b or p['bull']:
                 continue
             op, hi, lo, _ = b
-            stop = p['peak'] * (1 + p['loss'] / 100)
+            stop = p['entry'] * (1 + p['loss'] / 100)   # 최초 매수가 기준 고정 손절선
             if lo <= stop:   # 같은 날 목표가와 겹치면 손절을 먼저 본다(보수적)
-                self._sell(t, 1, min(op, stop), k, '손절(TS)')
+                self._sell(t, 1, min(op, stop), k, '손절')
                 continue
             for key, lvl, why in (('t1_done', 't1', '1차목표'), ('t2_done', 't2', '2차목표')):
                 if p[key] or (key == 't2_done' and not p['t1_done']):
@@ -230,7 +230,7 @@ class Book:
         for t, p in self.pos.items():
             b = bar(t)
             if b:
-                p['peak'], p['last'] = max(p['peak'], b[3]), b[3]
+                p['last'] = b[3]
             card = cards.get(t)
             p['bull'] = bool(card and card['hunbot'].get('super_bull'))
         value = sum(p['sh'] * p['last'] for p in self.pos.values())
@@ -363,7 +363,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>연도별 수익률</h2><div class="box"><table>{ytable}</table></div>
 <h2>규칙과 한계</h2><ul>
 <li>매수: 매수 카드에 새로 오르면 목표 비중의 50%, 매수 카드 상태에서 훈봇 ▲ 신호가 뜨면 나머지 50%. 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순. 보유 종목이 꽉 차면 건너뜀.</li>
-<li>매도: 1차 목표가에 50%, 2차 목표가에 남은 물량의 50%, 매도 카드가 뜨면 전량. 최초 매수 때의 예상 손실률을 최고 종가 기준 트레일링 스탑으로 적용. 초강세 구간에서는 매도 카드 외 매도 없음.</li>
+<li>매도: 1차 목표가에 50%, 2차 목표가에 남은 물량의 50%, 매도 카드가 뜨면 전량. 손절은 최초 매수가에 예상 손실률을 적용한 고정 가격(추가 매수분도 같은 가격). 초강세 구간에서는 매도 카드 외 매도 없음.</li>
 <li>카드 신호는 다음 날 시가에 체결, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''

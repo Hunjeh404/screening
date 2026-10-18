@@ -49,7 +49,7 @@ class BookTest(unittest.TestCase):
             book.morning(k, bar)
             book.evening(k, bar, cards, newly)
 
-    def test_half_buy_addon_targets_bull_and_trailing_stop(self):
+    def test_half_buy_addon_targets_bull_and_fixed_stop(self):
         b = bt.Book(5, cost=0)
         A = lambda o, h, l, c: {'A': (o, h, l, c)}
         self.run_days(b, [
@@ -57,14 +57,15 @@ class BookTest(unittest.TestCase):
             (A(100, 101, 99, 100), {'A': card('A', age=0)}, []),               # 50% 매수, ▲ -> 다음 날 나머지
             (A(100, 111, 100, 110), {'A': card('A', bull=True)}, []),          # 추가 매수, 1차 목표(110) 50% 매도, 초강세
             (A(110, 125, 80, 120), {'A': card('A', state='HOLD')}, []),        # 초강세라 손절·2차 목표 쉼
-            (A(120, 121, 110, 115), {'A': card('A', state='HOLD')}, []),       # 최고 종가 120 -> 손절 114
+            (A(118, 119, 96, 115), {'A': card('A', state='HOLD')}, []),        # 손절선은 매수가 100 기준 95로 고정
+            (A(115, 116, 94, 100), {'A': card('A', state='HOLD')}, []),        # 저가 94 -> 95에 손절
         ])
         self.assertEqual(b.pos, {})
         tr = b.closed[0]
-        self.assertEqual(tr['events'], '50%매수>추가매수>1차목표>손절(TS)')
-        # 0.1씩 두 번 산 1000+1000/100 주 중 절반 110에, 나머지 114에 매도
+        self.assertEqual(tr['events'], '50%매수>추가매수>1차목표>손절')
+        # 0.1씩 두 번(100에) 산 물량 중 절반 110에, 나머지 손절선 95에 매도
         sh = .1 / 100 + .1 / 100
-        self.assertAlmostEqual(b.cash, 1 - .2 + sh / 2 * 110 + sh / 2 * 114)
+        self.assertAlmostEqual(b.cash, 1 - .2 + sh / 2 * 110 + sh / 2 * 95)
 
     def test_sell_card_market_exit_and_gap(self):
         b = bt.Book(5, cost=0)
@@ -79,7 +80,7 @@ class BookTest(unittest.TestCase):
         self.run_days(b, [({}, {'A': card('A', age=0)}, ['A']),
                           ({'A': (100, 100, 100, 100)}, {'A': card('A')}, []),
                           ({'A': (90, 95, 88, 92)}, {'A': card('A')}, [])])   # 시가가 손절가(95) 아래 -> 시가 체결
-        self.assertEqual(b.closed[0]['exit'], '손절(TS)')
+        self.assertEqual(b.closed[0]['exit'], '손절')
         self.assertAlmostEqual(b.cash, 1 - .2 + .2 / 100 * 90)
 
     def test_priority_slots_and_cost(self):
