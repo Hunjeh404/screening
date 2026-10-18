@@ -31,6 +31,13 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(calc_card_metrics(100,97,95,10,10,2,False,1)[0],-5)
     def test_turnaround_target(self):
         self.assertEqual(calc_card_metrics(100,95,130,None,None,None,False,1),(-6.9,30,37))
+    def test_turnaround_stop_is_tighter(self):
+        self.assertEqual(calc_card_metrics(100,90,80,None,None,2,False,1,turnaround=True)[0],-5)
+        self.assertEqual(calc_card_metrics(100,97,95,None,None,2,False,1,turnaround=True)[0],-4.9)
+        self.assertEqual(calc_card_metrics(100,99,99,None,None,2,False,1,turnaround=True)[0],-3)
+        for close in (70,85,100,120):
+            self.assertTrue(-5<=calc_card_metrics(close,90,110,None,None,None,False,.1,turnaround=True)[0]<=-3)
+        s=stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9);enrich(s);self.assertEqual(s['metrics']['expected_loss'],-5)
     def test_finance_valuation(self):
         self.assertEqual(calc_card_metrics(100,90,80,10,12,.5,True,1),(-7,14,100))
     def test_missing_and_zero_prices(self):
@@ -54,19 +61,32 @@ class MetricsTest(unittest.TestCase):
 class RuleTest(unittest.TestCase):
     def test_both_buy_paths(self):
         self.assertTrue(buy_eligible(stock()))
-        self.assertTrue(buy_eligible(stock(per=None,ni_ttm=-5,roe3=-10,profit_years=0)))
+        self.assertTrue(buy_eligible(stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9,roe3=-10,profit_years=0)))
         self.assertFalse(buy_eligible(stock(per=None,ni_ttm=None)))
-    def test_loss_turnaround_requires_quarterly_improvement(self):
-        for previous, latest, expected in [(-100,-60,True),(-100,20,True),(20,30,True),
-                                            (-60,-100,False),(30,20,False),(20,20,False),
-                                            (None,20,False),(20,None,False)]:
-            with self.subTest(previous=previous,latest=latest):
-                s=stock(ni_ttm=-1,per=None,prev_op=previous,latest_op=latest)
+        # 순이익만 적자(영업이익 흑자)면 턴어라운드가 아니라 일반 경로 품질 조건을 받는다
+        self.assertTrue(buy_eligible(stock(ni_ttm=-5)))
+        self.assertFalse(buy_eligible(stock(ni_ttm=-5,per=None,profit_years=0,roe3=-10)))
+    def test_loss_turnaround_requires_two_quarter_improvement(self):
+        for ops, expected in [((-100,-60,-20),True),((-100,-60,20),True),((10,20,30),True),
+                              ((-60,-100,-20),False),((-100,-20,-60),False),((-20,-20,-10),False),
+                              ((None,-20,-10),False),((-30,None,-10),False),((-30,-20,None),False)]:
+            with self.subTest(ops=ops):
+                s=stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9);s.update(prev2_op=ops[0],prev_op=ops[1],latest_op=ops[2])
                 self.assertEqual(buy_eligible(s),expected)
-        h={};update_history([stock(ni_ttm=-1,per=None)],h,'us','2026-10-16 08:00')
-        rows=[stock(ni_ttm=-1,per=None,latest_op=10,prev_op=15)]
+        h={};update_history([stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9)],h,'us','2026-10-16 08:00')
+        rows=[stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9)];rows[0]['latest_op']=-15
         update_history(rows,h,'us','2026-10-17 08:00')
-        self.assertEqual(rows[0]['state'],'HOLD')
+        self.assertEqual(rows[0]['state'],'HOLD');self.assertIn('영익 개선 미달',rows[0]['state_reasons'])
+    def test_loss_turnaround_fscore(self):
+        for score, maximum, expected in [(7,9,True),(6,9,False),(9,9,True),(5,6,True),(4,6,False),
+                                         (None,9,False),(7,None,False),(8,8,False)]:
+            with self.subTest(score=score,maximum=maximum):
+                s=stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9);s.update(fscore=score,fscore_max=maximum)
+                self.assertEqual(buy_eligible(s),expected)
+        s=stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9);s['fscore']=6;self.assertIn('F-스코어 미달',hold_reasons(s))
+        # 턴어라운드 경로에서는 영업이익 신고가 실패를 보유 사유로 보이지 않는다
+        s=stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9);s.update(op_q=False,fscore=6);self.assertNotIn('실적유지',hold_reasons(s))
+        self.assertIn('흑자 연수 미달',hold_reasons(stock(profit_years=3)))
 
     def test_obv_exclusion_and_full_period(self):
         s=stock(obv_signal='이탈');self.assertFalse(buy_eligible(s))
@@ -75,7 +95,8 @@ class RuleTest(unittest.TestCase):
     def test_trend(self):
         s=stock();enrich(s);self.assertEqual(s['trend'],'상승우위')
         s=stock(ma200=120);enrich(s);self.assertEqual(s['trend'],'턴어라운드')
-        s=stock(ni_ttm=-10,per=None);enrich(s);self.assertEqual(s['trend'],'턴어라운드')
+        s=stock(op_ttm_value=-10,per=None);enrich(s);self.assertEqual(s['trend'],'턴어라운드')
+        s=stock(ni_ttm=-10);enrich(s);self.assertEqual(s['trend'],'상승우위')
     def test_all_sell_reasons(self):
         scenarios=[({'close':70},'추세이탈'),({'obv_signal':'이탈'},'수급악화'),
                    ({'vol20':.03,'close':97,'change_pct':-7},'투매'),
@@ -151,8 +172,34 @@ class HistoryTest(unittest.TestCase):
             rows=[stock(per=15)];persist_cards(rows,'us','2026-10-17 08:00',p)
             h=json.loads(p.read_text());self.assertEqual(len(h['tickers']),2)
             self.assertEqual(rows[0]['state'],'HOLD')
+    def test_sell_tab_kept_five_update_days_then_deleted(self):
+        h={};update_history([stock()],h,'us','2026-10-16 08:00')
+        for day in range(17,22):
+            for hour in ('08:00','20:00'):  # 같은 날 재실행은 1회로 센다
+                rows=[stock(close=70)];update_history(rows,h,'us',f'2026-10-{day} {hour}')
+                self.assertEqual(rows[0]['state'],'SELL')
+        rows=[stock(close=70)];update_history(rows,h,'us','2026-10-22 08:00')
+        self.assertIsNone(rows[0]['state']);self.assertNotIn('us:TEST',h['tickers'])
+        # 지운 뒤 조건을 다시 충족하면 새 편입
+        rows=[stock()];update_history(rows,h,'us','2026-10-23 08:00')
+        self.assertEqual(rows[0]['state'],'BUY');self.assertEqual(h['tickers']['us:TEST']['first_entry_date'],'2026-10-23')
+    def test_sell_count_resets_when_leaving_sell(self):
+        h={};update_history([stock()],h,'us','2026-10-16 08:00')
+        for day,changes in [(17,{'close':70}),(18,{'close':70}),(19,{}),(20,{'close':70}),(21,{'close':70}),
+                            (22,{'close':70}),(23,{'close':70}),(24,{'close':70})]:
+            rows=[stock(**changes)];update_history(rows,h,'us',f'2026-10-{day} 08:00')
+        self.assertEqual(rows[0]['state'],'SELL');self.assertEqual(h['tickers']['us:TEST']['sell_days'],5)
+    def test_delisted_removed_but_fetch_gap_kept(self):
+        listed={f'T{i}' for i in range(600)}
+        h={};update_history([stock(),stock(code='T1')],h,'us','2026-10-16 08:00',listed|{'TEST'})
+        rows=[];update_history(rows,h,'us','2026-10-17 08:00',listed)
+        self.assertEqual([r['code'] for r in rows],['T1']);self.assertNotIn('us:TEST',h['tickers'])
+        # 상장 목록 수집이 실패해 너무 작으면 지우지 않는다
+        h={};update_history([stock()],h,'us','2026-10-16 08:00')
+        rows=[];update_history(rows,h,'us','2026-10-17 08:00',{'X'})
+        self.assertTrue(rows[0]['data_missing'])
     def test_turnaround_entry_loss_persists(self):
-        h={};update_history([stock(per=None,ni_ttm=-1,op_ttm_value=-2)],h,'us','2026-10-16 08:00')
+        h={};update_history([stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9)],h,'us','2026-10-16 08:00')
         rows=[stock(rev_q=False,record=False)];update_history(rows,h,'us','2026-10-17 08:00')
         self.assertEqual(rows[0]['state'],'SELL');self.assertIn('적자전환',rows[0]['state_reasons'])
 

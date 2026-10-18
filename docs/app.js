@@ -50,13 +50,15 @@ function tagReasons(s,tag) {
   const ma=[`현재가 ${price(s.close)}`,`120일선 ${price(s.ma120)} · 200일선 ${price(s.ma200)}`];
   const losses=[`TTM 순이익 ${mil(s.ni_ttm)}`,`TTM 영업이익 ${mil(s.op_ttm_value)}`];
   const vol=`20일 변동성 ${unit(s.vol20==null?null:s.vol20*100,'%')} · 60일 ${unit(s.vol60==null?null:s.vol60*100,'%')}`;
+  const opTrend=[`분기 영업이익 ${mil(s.prev2_op)} → ${mil(s.prev_op)} → ${mil(s.latest_op)}`];
+  const fscoreLine=`F-스코어 ${s.fscore??'–'}/${s.fscore_max??'–'}점 (통과 ${({9:7,6:5})[s.fscore_max]??'–'}점)`;
   const totals=[`TTM 매출 ${mil(s.prev_rev_ttm)} → ${mil(s.rev_ttm_value)}`,`TTM 영업이익 ${mil(s.prev_op_ttm)} → ${mil(s.op_ttm_value)}`];
   switch(tag) {
     case '상승우위': return ['현재가가 120일선·200일선 이상',...ma,`PER ${num(s.per)}배 · 적자 턴어라운드 조건 제외`];
     case '턴어라운드': {
       const lines=[];
       if(s.close>=s.ma120&&s.close<s.ma200)lines.push('120일선 회복 · 200일선 아래',...ma);
-      if([s.ni_ttm,s.op_ttm_value].some(v=>Number.isFinite(v)&&v<0)&&s.rev_q&&s.rev_ttm)lines.push('TTM 적자 · 분기 및 TTM 매출 신고가',...losses);
+      if(Number.isFinite(s.op_ttm_value)&&s.op_ttm_value<0&&s.rev_q&&s.rev_ttm)lines.push('TTM 영업적자 · 분기 및 TTM 매출 신고가',...losses,...opTrend,fscoreLine);
       return lines.length?lines:['편입 당시 턴어라운드 조건 충족',...ma];
     }
     case '매출': return ['최근 단일 분기·TTM 매출 모두 과거 최고',`${s.latest_q||'최근 분기'} 매출 ${mil(last(q.rev))}`,`최근 4분기 매출 합계 ${mil(s.rev_ttm_value)}`];
@@ -70,7 +72,7 @@ function tagReasons(s,tag) {
     case '피크아웃': return ['TTM 매출·영업이익 동반 감소',...totals];
     case '적자전환': {
       const lines=[];
-      const special=s.fin||s.history?.entry_turnaround||([s.ni_ttm,s.op_ttm_value].some(v=>Number.isFinite(v)&&v<0)&&s.rev_q&&s.rev_ttm);
+      const special=s.fin||s.history?.entry_turnaround||(Number.isFinite(s.op_ttm_value)&&s.op_ttm_value<0&&s.rev_q&&s.rev_ttm);
       if(s.fin&&s.roe3!=null&&s.roe3<8)lines.push(`금융업 3년 평균 ROE ${unit(s.roe3,'%')} < 8%`);
       if(s.history?.entry_op_loss&&s.rev_q===false)lines.push('영업적자로 편입한 종목의 분기 매출 신고가 실패',`최근 분기 매출 ${mil(last(q.rev))}`);
       if(!special){
@@ -87,6 +89,10 @@ function tagReasons(s,tag) {
     case '지지 테스트': return ['두 장기 이평선 아래 · 적어도 한 선의 −2% 이내',...ma];
     case '실적유지': return ['분기 신고가 조건 일부 미충족 · TTM 동반 감소는 아님',`분기 매출 신고가 ${s.rev_q?'충족':'미충족'} · 영업이익 신고가 ${s.op_q?'충족':'미충족'}`,...totals];
     case '재무보합': return [s.fin?'금융업 ROE 8% 이상·10% 미만':'ROE 12% 이상·15% 미만 또는 부채비율 50% 초과·70% 이하',`3년 평균 ROE ${unit(s.roe3,'%')}`,`부채비율 ${unit(s.debt,'%')}`];
+    case '영익 개선 미달': return ['적자 턴어라운드: 분기 영업이익 2분기 연속 개선 필요',...opTrend];
+    case 'F-스코어 미달': return ['적자 턴어라운드: F-스코어 통과 점수 필요',fscoreLine,
+      ...Object.entries(s.fscore_items||{}).map(([k,v])=>`${v===true?'○':v===false?'×':'–'} ${k}`)];
+    case '흑자 연수 미달': return ['일반 기업: 연속 영업흑자 5년 이상 필요',`연속 흑자 ${s.profit_years??'–'}년`];
     case '매수조건 미충족': return ['과거 편입 이력 있음 · 현재 저평가 조건 일부 미충족','고평가 전환 사유 없음',`최근 분기 영업이익 ${mil(s.prev_op)} → ${mil(s.latest_op)}`,`ROE ${unit(s.roe3,'%')} · PER ${num(s.per)} · 중앙값 ${num(s.per_med5)}`];
     case '주식 수 확인 필요': return ['주식 수 누락·시차 또는 가치지표 이상으로 계산 제한',`최근 재무분기 ${s.latest_q||'–'}`,`시가총액 ${bil(s.marcap)}`];
     case '수집 지연 · 이전 데이터': return ['최신 수집 실패로 직전 유효 데이터 유지',`마지막 정상 수집 ${s.history?.last_seen||'–'}`];

@@ -42,7 +42,10 @@ for s in stocks:
 
 meta = {'generated': dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d %H:%M'),
         'schema_version': SCHEMA_VERSION, 'sample': os.path.exists(f'{CACHE}/SAMPLE'), 'count': len(stocks), 'newest_q': newest}
-persist_cards(stocks, 'us', meta['generated'], os.path.join(os.path.dirname(OUT), 'card_history.json'))
-meta['count'] = len(stocks)
-write_json(OUT, {'meta': meta, 'stocks': stocks})
+persist_cards(stocks, 'us', meta['generated'], os.path.join(os.path.dirname(OUT), 'card_history.json'),
+             listed={v['ticker'] for v in listing.values()})
+# 화면에는 매수·보유·매도 상태인 종목만 쓰므로 그 종목만 싣는다 (전체 분석 수는 meta.count)
+shown = [s for s in stocks if s.get('state')]
+meta['shown'] = len(shown)
+write_json(OUT, {'meta': meta, 'stocks': shown})
 print(f"{len(stocks)}종목, 실적 신고가 {sum(s['record'] for s in stocks)}종목 -> {OUT}")

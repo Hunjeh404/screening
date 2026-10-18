@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 
 SCHEMA_VERSION = 2
+# 적자 턴어라운드 F-스코어 통과 점수: 미국 9개 항목 중 7점, 한국 6개 항목 중 5점
+FSCORE_NEED = {9: 7, 6: 5}
+# 매도 상태로 보여 주는 갱신일 수. 이를 넘기면 이력까지 지운다
+SELL_KEEP_DAYS = 5
 
 
 def valid(value):
@@ -16,17 +20,20 @@ def positive(value):
     return valid(value) and value > 0
 
 
-def calc_card_metrics(close, ma120, ma200, per, med_per_5y, pbr, is_finance, mcap_b):
+def calc_card_metrics(close, ma120, ma200, per, med_per_5y, pbr, is_finance, mcap_b, turnaround=False):
     if not all(positive(x) for x in (close, ma120, ma200)):
         return None, None, None
     # 시총/환율 누락은 일반주로 단정하지 않고 최대 위험폭을 보수적으로 사용한다.
     max_stop = -10.0 if (not valid(mcap_b) or mcap_b <= .3 or not positive(per)) else -7.0
+    min_stop = -5.0
+    if turnaround:  # 적자 턴어라운드는 일반주보다 좁게: 최소 -3%, 최대 -5%
+        max_stop, min_stop = -5.0, -3.0
     if close >= ma120 and close >= ma200:
         high_ma, low_ma = max(ma120, ma200), min(ma120, ma200)
         support = (high_ma if (close - high_ma) / close >= .03 else low_ma) * .98
     else:
         support = (ma120 if close >= ma120 else ma200) * .98
-    risk = max(max_stop, min(-5.0, (support / close - 1) * 100))
+    risk = max(max_stop, min(min_stop, (support / close - 1) * 100))
     r = abs(risk)
     target1 = max((ma200 / close - 1) * 100, r * 2) if close < ma200 else r * 2
     val = (med_per_5y / per - 1) * 100 if positive(per) and positive(med_per_5y) and med_per_5y > per else 0
@@ -55,8 +62,19 @@ def obv_signal(w):
 
 
 def loss_turnaround(s):
-    # PER 미산출만으로 적자로 오판하지 않는다(주식 수 누락도 PER 미산출을 유발).
-    return any(valid(s.get(k)) and s[k] < 0 for k in ('ni_ttm', 'op_ttm_value')) and bool(s.get('rev_q') and s.get('rev_ttm'))
+    # 적자 판단은 영업이익 기준. 순이익만 적자(일회성 손실 등)인 회사는 일반 경로로 판정한다.
+    return valid(s.get('op_ttm_value')) and s['op_ttm_value'] < 0 and bool(s.get('rev_q') and s.get('rev_ttm'))
+
+
+def op_improving(s):
+    """분기 영업이익 2분기 연속 개선: 전전분기 < 전분기 < 최근 분기"""
+    ops = [s.get(k) for k in ('prev2_op', 'prev_op', 'latest_op')]
+    return all(valid(x) for x in ops) and ops[0] < ops[1] < ops[2]
+
+
+def fscore_ok(s):
+    need = FSCORE_NEED.get(s.get('fscore_max'))
+    return need is not None and valid(s.get('fscore')) and s['fscore'] >= need
 
 
 def buy_eligible(s):
@@ -68,7 +86,7 @@ def buy_eligible(s):
     if s.get('fin'):
         return positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10
     if loss_turnaround(s):
-        return valid(s.get('latest_op')) and valid(s.get('prev_op')) and s['latest_op'] > s['prev_op']
+        return op_improving(s) and fscore_ok(s)
     return (valid(s.get('roe3')) and s['roe3'] >= 15 and valid(s.get('debt')) and s['debt'] <= 50
             and s.get('profit_years', 0) >= 5 and positive(s.get('per')) and positive(s.get('per_med5'))
             and s['per'] < s['per_med5'])
@@ -115,12 +133,23 @@ def hold_reasons(s):
         reasons.append('적정가치')
     if all(positive(x) for x in (c, a, b)) and c < a and c < b and (c >= a * .98 or c >= b * .98):
         reasons.append('지지 테스트')
-    if (s.get('rev_q') is False or s.get('op_q') is False) and not peak_out(s):
+    turnaround = not s.get('fin') and loss_turnaround(s)
+    # 턴어라운드 경로는 매출 신고가만 보므로 영업이익 신고가 실패는 사유가 아니다.
+    record_miss = s.get('rev_q') is False if turnaround else (s.get('rev_q') is False or s.get('op_q') is False)
+    if record_miss and not peak_out(s):
         reasons.append('실적유지')
-    roe, debt = s.get('roe3'), s.get('debt')
-    if ((s.get('fin') and valid(roe) and 8 <= roe < 10)
-        or (not s.get('fin') and ((valid(roe) and 12 <= roe < 15) or (valid(debt) and 50 < debt <= 70)))):
-        reasons.append('재무보합')
+    if turnaround:
+        if not op_improving(s):
+            reasons.append('영익 개선 미달')
+        if not fscore_ok(s):
+            reasons.append('F-스코어 미달')
+    else:
+        roe, debt = s.get('roe3'), s.get('debt')
+        if ((s.get('fin') and valid(roe) and 8 <= roe < 10)
+            or (not s.get('fin') and ((valid(roe) and 12 <= roe < 15) or (valid(debt) and 50 < debt <= 70)))):
+            reasons.append('재무보합')
+        if not s.get('fin') and s.get('profit_years', 0) < 5:
+            reasons.append('흑자 연수 미달')
     return reasons or ['매수조건 미충족']
 
 
@@ -145,7 +174,8 @@ def enrich(s):
         s['trend'] = '상승우위'
     for key in ('ma120', 'ma200'):
         s['dist_' + key] = round((c / s[key] - 1) * 100, 1) if positive(c) and positive(s.get(key)) else None
-    risk, t1, t2 = calc_card_metrics(c, a, b, s.get('per'), s.get('per_med5'), s.get('pbr'), s.get('fin'), s.get('mcap_b'))
+    risk, t1, t2 = calc_card_metrics(c, a, b, s.get('per'), s.get('per_med5'), s.get('pbr'), s.get('fin'), s.get('mcap_b'),
+                                     turnaround=not s.get('fin') and loss_turnaround(s))
     s['metrics'] = {'expected_loss': risk, 'target_1': t1, 'target_2': t2,
                     'stop_price': round(c * (1 + risk / 100), 2) if risk is not None else None,
                     'target_1_price': round(c * (1 + t1 / 100), 2) if t1 is not None else None,
@@ -154,8 +184,9 @@ def enrich(s):
     s['buy_eligible'] = buy_eligible(s)
 
 
-def update_history(stocks, history, market, generated):
-    """시장별 티커 키, 매도 우선, 최초 BUY 이력 없는 SELL 금지. 동일 시세 재실행 멱등."""
+def update_history(stocks, history, market, generated, listed=None):
+    """시장별 티커 키, 매도 우선, 최초 BUY 이력 없는 SELL 금지. 동일 시세 재실행 멱등.
+    매도 상태로 SELL_KEEP_DAYS 갱신일을 넘기거나 상장 목록(listed)에서 빠지면 이력까지 지운다."""
     history.setdefault('version', 1)
     entries = history.setdefault('tickers', {})
     seen = set()
@@ -171,6 +202,18 @@ def update_history(stocks, history, market, generated):
         if not state:
             continue
         day = generated[:10]
+        if old and state == 'SELL':
+            # 같은 날 재실행은 1회로 센다. 매도로 바뀐 날이 1회째.
+            if old.get('sell_last_day') != day:
+                old['sell_days'] = old.get('sell_days', 0) + 1 if old.get('state') == 'SELL' else 1
+                old['sell_last_day'] = day
+            if old['sell_days'] > SELL_KEEP_DAYS:
+                del entries[key]
+                s.update(state=None, state_reasons=[], valuation=None)
+                continue
+        elif old:
+            old.pop('sell_days', None)
+            old.pop('sell_last_day', None)
         if not old:
             old = {'first_entry_date': day, 'entry_price': s['close'], 'state': None,
                    'highest_price': s['close'], 'entry_turnaround': loss_turnaround(s),
@@ -188,6 +231,11 @@ def update_history(stocks, history, market, generated):
                    highest_price=max(old['highest_price'], s['close']) if positive(s.get('close')) else old['highest_price'])
         s['history'] = {k: v for k, v in old.items() if k != 'snapshot'}
         old['snapshot'] = copy.deepcopy({k: v for k, v in s.items() if k != 'history'})
+    # 상장 목록에서 빠진 종목(상장폐지)은 지운다. 상장 목록이 비정상적으로 작으면(수집 실패) 지우지 않는다.
+    listed_ok = listed is not None and len(listed) >= 500
+    for key in [k for k in entries if k.startswith(market + ':') and k not in seen]:
+        if listed_ok and key.split(':', 1)[1] not in listed:
+            del entries[key]
     # 일시적인 수집 실패는 매도/삭제로 간주하지 않고 마지막 검증된 상태를 유지한다.
     for key, old in entries.items():
         if key.startswith(market + ':') and key not in seen and old.get('snapshot'):
@@ -208,8 +256,9 @@ def write_json(path, data):
     os.replace(tmp, path)
 
 
-def persist_cards(stocks, market, generated, history_path='docs/card_history.json'):
+def persist_cards(stocks, market, generated, history_path='docs/card_history.json', listed=None):
     path = Path(history_path)
-    history = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'version': 1, 'tickers': {}}
-    update_history(stocks, history, market, generated)
+    text = path.read_text(encoding='utf-8') if path.exists() else ''
+    history = json.loads(text) if text.strip() else {'version': 1, 'tickers': {}}
+    update_history(stocks, history, market, generated, listed)
     write_json(path, history)
