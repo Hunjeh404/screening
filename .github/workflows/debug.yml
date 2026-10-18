@@ -1,0 +1,57 @@
+name: debug
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: none
+          restore-keys: cache-
+      - run: pip install -q -r requirements.txt
+      - run: |
+          python3 - <<'PY'
+          import json, sys, os, collections, datetime as dt
+          sys.path.insert(0, 'scripts')
+          from lib import analyze, shift_label
+          from lib_kr import to_ext
+          import card_rules as cr
+          C='data/cache/kr'; L=lambda n: json.load(open(f'{C}/{n}'))
+          listing,corp,induty,fin,prices=(L(n) for n in ('listing.json','corp.json','induty.json','fin2.json','prices.json'))
+          st=[]
+          for code,info in listing.items():
+              cc=corp.get(code)
+              if not cc or cc not in fin: continue
+              a=analyze(to_ext(fin[cc]),prices.get(code),{'val':info['shares'],'end':dt.date.today().isoformat()})
+              if a: st.append({'code':code,'name':info['name'],'fin':induty.get(cc,'')[:2] in ('64','65','66'),**a})
+          newest=max(s['latest_q'] for s in st); fresh=shift_label(newest,-1)
+          for s in st:
+              s['stale']=s['latest_q']<fresh; s['record']=not s['stale'] and ((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
+              s['wk']=prices.get(s['code'],{}).get('wk'); cr.enrich(s)
+          rec=[s for s in st if s['record']]
+          tech=[s for s in rec if (s['close']>=s['ma120'] or s['close']>=s['ma200']) and s['vol_down'] and s['obv_signal']!='이탈']
+          ta=[s for s in tech if not s['fin'] and cr.loss_turnaround(s)]
+          gen=[s for s in tech if not s['fin'] and not cr.loss_turnaround(s)]
+          fins=[s for s in tech if s['fin']]
+          out=[f"KR newest={newest} 분석={len(st)} 신고가={len(rec)} 기술통과={len(tech)} 턴어라운드후보={len(ta)} 일반={len(gen)} 금융={len(fins)}",
+               'F분포 '+str(collections.Counter(s['fscore'] for s in st if not s['fin']).most_common()),
+               'F항목 None 비율 '+str({k:sum(1 for s in st if s['fscore_items'].get(k) is None) for k in st[0]['fscore_items']}),
+               '턴어라운드: '+'; '.join(f"{s['name']} op={[s['prev2_op'],s['prev_op'],s['latest_op']]} F={s['fscore']}" for s in ta[:12]),
+               '일반 탈락사유: '+str(collections.Counter(r for s in gen for r in (['ROE']*(not(s['roe3'] and s['roe3']>=15))+['부채']*(not(s['debt'] is not None and s['debt']<=50))+['흑자']*(s['profit_years']<5)+['PER']*(not(s['per'] and s['per_med5'] and s['per']<s['per_med5'])))).most_common()),
+               '금융: '+'; '.join(f"{s['name']} pbr={s['pbr']} roe={s['roe3']}" for s in fins[:8])]
+          for o in out: print('::warning title=kr::'+o[:1800])
+          sec=json.load(open('data/cache/sector.json')) if os.path.exists('data/cache/sector.json') else {}
+          print('::warning title=sec::NVDA in cache='+repr(sec.get('NVDA'))+' size='+str(len(sec)))
+          PY
+      - run: |
+          python3 - <<'PY'
+          import time, yfinance as yf
+          r=[]
+          for t in ('NVDA','AAPL','NVDA'):
+              try: i=yf.Ticker(t).info; r.append(f"{t}:{i.get('sector')!r}:{len(i)}")
+              except Exception as e: r.append(f"{t}:ERR {type(e).__name__} {str(e)[:150]}")
+              time.sleep(1)
+          print('::warning title=yf::'+' | '.join(r))
+          PY
