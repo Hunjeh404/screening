@@ -3,6 +3,11 @@
 
 /* 검색조건: 긴 설명을 독립된 조건 태그와 상태별 행으로 나눈다. */
 .condition-tags{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 10px}
+.analysis-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0}
+.analysis-tools button{border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--accent);padding:9px 12px;font:600 13px 'IBM Plex Sans KR',sans-serif;cursor:pointer}
+.analysis-tools button:disabled{opacity:.5;cursor:default}
+#copyStatus{font-size:12px;color:var(--sub)}
+#copyFallback{width:100%;max-width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.5 monospace}
 .condition-tag{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:7px;padding:6px 10px;color:var(--text);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .condition-join{color:var(--accent);font:600 11px 'IBM Plex Mono',monospace}
 .condition-note{font-size:13px;color:var(--sub);line-height:1.7;margin:6px 0}

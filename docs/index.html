@@ -49,6 +49,11 @@
       <p class="condition-note">비금융 기업의 별도 편입 조건입니다.</p>
     </div>
   </details>
+  <div class="analysis-tools">
+    <button id="copyAnalysis" type="button" disabled>LLM 분석용 복사</button>
+    <span id="copyStatus" role="status" aria-live="polite"></span>
+  </div>
+  <textarea id="copyFallback" hidden readonly aria-label="LLM 분석용 프롬프트와 종목 목록" rows="8"></textarea>
   <div id="list"></div>
 </main>
 </body>
