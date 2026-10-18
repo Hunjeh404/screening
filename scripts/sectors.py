@@ -23,7 +23,7 @@ tk = lambda s: s.get('yahoo', s['code'])  # 한국 종목은 005930.KS 같은 �
 todo = [tk(s) for s in data['stocks'] if (s['record'] or s.get('state')) and tk(s) not in cache]
 def lookup(t):
     # 여러 종목을 연달아 조회하면 야후 요청 제한에 걸려 빈 값이 오므로 간격을 늘려 다시 시도한다
-    for wait in (0, 5, 20):
+    for wait in (0, 30, 90):
         time.sleep(wait)
         try:
             sec = yf.Ticker(t).info.get('sector')

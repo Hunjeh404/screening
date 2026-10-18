@@ -6,6 +6,9 @@ from pathlib import Path
 
 from lib_kr import parse_multi_acnt
 
+# 저장 묶음 형식 버전. 파싱 항목이 바뀌면 올려서 저장분을 새로 받는다 (2: F-스코어용 재무상태 항목 추가)
+PARSE_VERSION = 2
+
 
 def fetch_batches(codes, year, quarter, report_code, today, cache, request, workers=8):
     folder = Path(cache) / 'fin2_batches' / f'{year}Q{quarter}'
@@ -14,7 +17,7 @@ def fetch_batches(codes, year, quarter, report_code, today, cache, request, work
 
     def fetch(batch):
         joined = ','.join(batch)
-        path = folder / (hashlib.sha256(joined.encode()).hexdigest() + '.json')
+        path = folder / (hashlib.sha256(f'{joined}|v{PARSE_VERSION}'.encode()).hexdigest() + '.json')
         if path.exists():
             saved = json.loads(path.read_text(encoding='utf-8'))
             # 최근 2개 연도는 날짜가 바뀌면 다시 받아 정정공시를 반영한다.
