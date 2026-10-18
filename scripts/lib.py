@@ -249,6 +249,16 @@ def price_metrics(dates, closes, vols=None, highs=None, lows=None):
     }
 
 
+def gp_quarters(ext):
+    """분기 매출총이익 (없으면 매출 - 매출원가). 미국만 있음"""
+    out = {}
+    for l, v in (ext.get('fq') or {}).items():
+        rev = ext['q'].get(l, {}).get('rev')
+        gp = v.get('gp') if v.get('gp') is not None else (rev - v['cogs'] if v.get('cogs') is not None and rev is not None else None)
+        out[l] = {'gp': gp}
+    return out
+
+
 def fscore(ext, seq, ni_t, rev_t):
     """피오트로스키 F-스코어를 최근 4분기 합계와 1년 전 비교로 계산한다.
     미국은 9개 항목, 한국은 DART 일괄 조회에 없는 현금흐름·매출총이익 3개를 뺀 6개 항목.
@@ -277,12 +287,7 @@ def fscore(ext, seq, ni_t, rev_t):
         sh_now, sh_prev = now.get('cap'), prev.get('cap')
     items = {'ROA 양수': gt(roa_now, 0)}
     if full:
-        fq = ext['fq']
-        gpq = {l: {'gp': v['gp'] if v.get('gp') is not None else
-                   (ext['q'].get(l, {}).get('rev') - v['cogs']
-                    if v.get('cogs') is not None and ext['q'].get(l, {}).get('rev') is not None else None)}
-               for l, v in fq.items()}
-        cfo_t, gp_t = ttm(seq, fq, 'cfo'), ttm(seq, gpq, 'gp')
+        cfo_t, gp_t = ttm(seq, ext['fq'], 'cfo'), ttm(seq, gp_quarters(ext), 'gp')
         cfo_now = at(cfo_t, -1)
         items['영업현금흐름 양수'] = gt(cfo_now, 0)
     items['ROA 개선'] = gt(roa_now, roa_prev)
@@ -349,13 +354,15 @@ def analyze(ext, px, sh):
     c = px['close']
 
     fs, fs_max, fs_items = fscore(ext, seq, ni_t, rev_t)
+    gp_t = ttm(seq, gp_quarters(ext), 'gp')
 
     r = lambda v, k=1: None if v is None else round(v, k)
     tail = seq[-12:]
     return {
         **{k: px.get(k) for k in ('close', 'ma20', 'ma120', 'ma200', 'vol20', 'vol60', 'change_pct', 'price_date', 'hunbot')},
         'ni_ttm': ni_now, 'rev_ttm_value': rev_t[-1], 'prev_rev_ttm': rev_t[-2],
-        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'op_ttm_year_ago': op_t[-5] if len(op_t) >= 5 else None, 'latest_op': op_q[-1], 'prev_op': op_q[-2],
+        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'op_ttm_year_ago': op_t[-5] if len(op_t) >= 5 else None,
+        'gp_ttm_value': gp_t[-1], 'gp_ttm_year_ago': gp_t[-5] if len(gp_t) >= 5 else None, 'latest_op': op_q[-1], 'prev_op': op_q[-2],
         'prev2_op': op_q[-3] if len(op_q) >= 3 else None,
         'fscore': fs, 'fscore_max': fs_max, 'fscore_items': fs_items,
         'latest_q': seq[-1], **rec, 'marcap': None if marcap is None else round(marcap), 'share_warn': share_warn,

@@ -93,6 +93,9 @@ function tagReasons(s,tag) {
     case '영익 개선 미달': return ['적자 턴어라운드: 분기 영업이익 2분기 연속 개선 필요',...opTrend];
     case 'F-스코어 미달': return ['적자 턴어라운드: F-스코어 통과 점수 필요',fscoreLine,
       ...Object.entries(s.fscore_items||{}).map(([k,v])=>`${v===true?'○':v===false?'×':'–'} ${k}`)];
+    case '이익 감소': return ['최근 4분기 '+(s.fin?'세전':'영업')+'이익이 1년 전보다 10% 넘게 감소','매출총이익이 늘었으면 투자로 인한 감익으로 보고 예외',
+      `${s.fin?'세전':'영업'}이익(4분기 합계) ${mil(s.op_ttm_year_ago)} → ${mil(s.op_ttm_value)}`,`매출총이익(4분기 합계) ${mil(s.gp_ttm_year_ago)} → ${mil(s.gp_ttm_value)}`];
+    case '세전이익 적자': return ['금융업: 최근 4분기 세전이익 흑자 필요',`세전이익(4분기 합계) ${mil(s.op_ttm_value)}`];
     case '흑자 연수 미달': return ['일반 기업: 연속 영업흑자 5년 이상 필요',`연속 흑자 ${s.profit_years??'–'}년`];
     case '매수조건 미충족': return ['과거 편입 이력 있음 · 현재 저평가 조건 일부 미충족','고평가 전환 사유 없음',`최근 분기 영업이익 ${mil(s.prev_op)} → ${mil(s.latest_op)}`,`ROE ${unit(s.roe3,'%')} · PER ${num(s.per)} · 중앙값 ${num(s.per_med5)}`];
     case '주식 수 확인 필요': return ['주식 수 누락·시차 또는 가치지표 이상으로 계산 제한',`최근 재무분기 ${s.latest_q||'–'}`,`시가총액 ${bil(s.marcap)}`];

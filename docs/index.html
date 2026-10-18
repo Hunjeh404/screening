@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>종목 검색기</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=cards-5">
+<link rel="stylesheet" href="styles.css?v=cards-6">
 <script src="vendor/html2canvas-1.4.1.min.js" defer></script>
-<script src="export-card.js?v=cards-5" defer></script>
-<script src="app.js?v=cards-5" defer></script>
+<script src="export-card.js?v=cards-6" defer></script>
+<script src="app.js?v=cards-6" defer></script>
 </head>
 <body>
 <main class="wrap">
@@ -38,11 +38,11 @@
     <div class="cols">
       <div class="group">
         <h3>일반 기업</h3>
-        <div class="condition-tags"><span class="condition-tag">3년 평균 ROE ≥ 15%</span><span class="condition-tag">부채비율 ≤ 50%</span><span class="condition-tag">연속 흑자 연수 ≥ 5년</span><span class="condition-tag">PER &lt; 5년 중앙값</span></div>
+        <div class="condition-tags"><span class="condition-tag">3년 평균 ROE ≥ 15%</span><span class="condition-tag">부채비율 ≤ 50%</span><span class="condition-tag">연속 흑자 연수 ≥ 5년</span><span class="condition-tag">PER &lt; 5년 중앙값</span><span class="condition-tag">영업이익 1년 전 대비 감소 10% 이내</span></div>
       </div>
       <div class="group">
         <h3>금융업 (은행·증권·보험·지주 등)</h3>
-        <div class="condition-tags"><span class="condition-tag">PBR ≤ 1배</span><span class="condition-tag">3년 평균 ROE ≥ 10%</span></div>
+        <div class="condition-tags"><span class="condition-tag">PBR ≤ 1배</span><span class="condition-tag">3년 평균 ROE ≥ 10%</span><span class="condition-tag">최근 4분기 세전이익 흑자</span><span class="condition-tag">세전이익 1년 전 대비 감소 10% 이내</span></div>
       </div>
     </div>
     <div class="group">
@@ -50,6 +50,7 @@
       <div class="condition-tags"><span class="condition-tag">최근 4분기 또는 1년 전 4분기 영업이익 적자</span><span class="condition-tag">직전 분기 매출 신고가</span><span class="condition-tag">최근 4분기 합계 매출 신고가</span><span class="condition-tag">분기 영업이익 2분기 연속 개선</span><span class="condition-tag">F-스코어 미국 7점·한국 5점 이상</span></div>
       <p class="condition-note">F-스코어는 미국 9개, 한국 6개 항목(현금흐름·매출총이익 제외) 기준입니다. 손절폭은 최소 −3%, 최대 −5%입니다.</p>
       <p class="condition-note">비금융 기업의 별도 편입 조건입니다.</p>
+      <p class="condition-note">일반 기업·금융업의 이익 감소 조건은 매출총이익이 1년 전보다 늘었으면 예외로 통과합니다(미국만 해당).</p>
     </div>
   </details>
   <div id="list"></div>

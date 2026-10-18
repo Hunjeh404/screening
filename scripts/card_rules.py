@@ -10,6 +10,8 @@ SCHEMA_VERSION = 2
 FSCORE_NEED = {9: 7, 6: 5}
 # 매도 상태로 보여 주는 갱신일 수. 이를 넘기면 이력까지 지운다
 SELL_KEEP_DAYS = 5
+# 최근 4분기 영업이익의 1년 전 대비 허용 감소폭
+PROFIT_DROP_ALLOWED = .10
 
 
 def valid(value):
@@ -78,6 +80,19 @@ def op_improving(s):
     return all(valid(x) for x in ops) and ops[0] < ops[1] < ops[2]
 
 
+def profit_holding(s):
+    """매출과 이익의 엇갈림 방지: 최근 4분기 영업이익(금융업은 세전이익)이 1년 전보다 10% 넘게 줄면 탈락.
+    다만 매출총이익이 1년 전보다 늘었으면 비용 투자로 인한 감익으로 보고 통과(미국만 자료 있음).
+    1년 전 값이 없으면 판단하지 않는다."""
+    now, before = s.get('op_ttm_value'), s.get('op_ttm_year_ago')
+    if not (valid(now) and valid(before)):
+        return True
+    if now >= before - abs(before) * PROFIT_DROP_ALLOWED:
+        return True
+    gp, gp_before = s.get('gp_ttm_value'), s.get('gp_ttm_year_ago')
+    return valid(gp) and valid(gp_before) and gp > gp_before
+
+
 def fscore_ok(s):
     need = FSCORE_NEED.get(s.get('fscore_max'))
     return need is not None and valid(s.get('fscore')) and s['fscore'] >= need
@@ -90,10 +105,11 @@ def buy_eligible(s):
     if not ((c >= a or c >= b) and s.get('vol_down')) or s.get('obv_signal') == '이탈':
         return False
     if s.get('fin'):
-        return positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10
+        return (positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10
+                and positive(s.get('op_ttm_value')) and profit_holding(s))
     if loss_turnaround(s):
         return op_improving(s) and fscore_ok(s)
-    return (valid(s.get('roe3')) and s['roe3'] >= 15 and valid(s.get('debt')) and s['debt'] <= 50
+    return profit_holding(s) and (valid(s.get('roe3')) and s['roe3'] >= 15 and valid(s.get('debt')) and s['debt'] <= 50
             and s.get('profit_years', 0) >= 5 and positive(s.get('per')) and positive(s.get('per_med5'))
             and s['per'] < s['per_med5'])
 
@@ -150,6 +166,10 @@ def hold_reasons(s):
         if not fscore_ok(s):
             reasons.append('F-스코어 미달')
     else:
+        if not profit_holding(s):
+            reasons.append('이익 감소')
+        if s.get('fin') and not positive(s.get('op_ttm_value')):
+            reasons.append('세전이익 적자')
         roe, debt = s.get('roe3'), s.get('debt')
         if ((s.get('fin') and valid(roe) and 8 <= roe < 10)
             or (not s.get('fin') and ((valid(roe) and 12 <= roe < 15) or (valid(debt) and 50 < debt <= 70)))):
@@ -174,7 +194,8 @@ def enrich(s):
     c, a, b = (s.get(k) for k in ('close', 'ma120', 'ma200'))
     s['obv_signal'] = obv_signal(s.get('wk'))
     s['trend'] = None
-    if loss_turnaround(s) or (all(positive(x) for x in (c, a, b)) and c >= a and c < b):
+    # 적자 턴어라운드는 비금융만. 가격 기준(120일선 회복·200일선 아래)은 업종과 무관하게 표시.
+    if (not s.get('fin') and loss_turnaround(s)) or (all(positive(x) for x in (c, a, b)) and c >= a and c < b):
         s['trend'] = '턴어라운드'
     elif all(positive(x) for x in (c, a, b)) and c >= a and c >= b and positive(s.get('per')) and not loss_turnaround(s):
         s['trend'] = '상승우위'

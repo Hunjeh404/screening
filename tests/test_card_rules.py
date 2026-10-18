@@ -83,6 +83,23 @@ class RuleTest(unittest.TestCase):
         self.assertFalse(buy_eligible(stock(op_ttm_value=3,op_ttm_year_ago=10,**TA)))
         s=stock(op_ttm_value=3,op_ttm_year_ago=-40,**TA);enrich(s)
         self.assertEqual(s['trend'],'턴어라운드');self.assertEqual(s['metrics']['expected_loss'],-5)
+    def test_profit_must_not_fall_with_revenue(self):
+        for now, before, gp, gp_before, expected in [
+                (100,100,None,None,True),(90,100,None,None,True),(89,100,None,None,False),
+                (89,100,120,100,True),(89,100,100,100,False),(89,100,None,100,False),
+                (60,None,None,None,True)]:
+            with self.subTest(now=now,before=before,gp=gp):
+                s=stock(op_ttm_value=now,op_ttm_year_ago=before,gp_ttm_value=gp,gp_ttm_year_ago=gp_before)
+                self.assertEqual(buy_eligible(s),expected)
+                self.assertEqual('이익 감소' in hold_reasons(s),not expected)
+        # 금융업: 세전이익 흑자 + 이익 감소 없음 (시버트형: 3년 평균 ROE는 높지만 최근 적자)
+        self.assertTrue(buy_eligible(stock(fin=True)))
+        siebert=stock(fin=True,roe3=12.1,pbr=.9,op_ttm_value=-1,op_ttm_year_ago=20)
+        self.assertFalse(buy_eligible(siebert))
+        self.assertIn('세전이익 적자',hold_reasons(siebert));self.assertIn('이익 감소',hold_reasons(siebert))
+        s=stock(fin=True,op_ttm_value=-1,ma200=80);enrich(s);self.assertNotEqual(s['trend'],'턴어라운드')
+        # 턴어라운드 경로는 2분기 연속 개선으로 따로 보므로 이익 감소 조건을 적용하지 않는다
+        self.assertTrue(buy_eligible(stock(per=None,op_ttm_value=-5,op_ttm_year_ago=-1,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9)))
     def test_loss_turnaround_fscore(self):
         for score, maximum, expected in [(7,9,True),(6,9,False),(9,9,True),(5,6,True),(4,6,False),
                                          (None,9,False),(7,None,False),(8,8,False)]:
