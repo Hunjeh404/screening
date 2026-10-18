@@ -15,6 +15,7 @@ import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
 from lib import price_metrics
+from hunbot import completed_day
 from dart_batches import fetch_batches
 
 KEY = os.environ.get('DART_API_KEY') or sys.exit('DART_API_KEY 시크릿이 없습니다')
@@ -130,9 +131,11 @@ start = (dt.date.today() - dt.timedelta(days=365 * 6 + 30)).isoformat()
 
 def px(code):
     try:
-        df = fdr.DataReader(code, start)
+        df = fdr.DataReader(code, start).dropna(subset=['Close'])
+        df = df.loc[[completed_day(d.date(), 'kr') for d in df.index]]
         return code, price_metrics([d.date() for d in df.index], df['Close'].astype(float).tolist(),
-                                   df['Volume'].fillna(0).astype(float).tolist())
+                                   df['Volume'].fillna(0).astype(float).tolist(),
+                                   df['High'].astype(float).tolist(), df['Low'].astype(float).tolist())
     except Exception:
         return code, None
 

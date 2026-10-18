@@ -68,7 +68,7 @@ def buy_eligible(s):
     if s.get('fin'):
         return positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10
     if loss_turnaround(s):
-        return True
+        return valid(s.get('latest_op')) and valid(s.get('prev_op')) and s['latest_op'] > s['prev_op']
     return (valid(s.get('roe3')) and s['roe3'] >= 15 and valid(s.get('debt')) and s['debt'] <= 50
             and s.get('profit_years', 0) >= 5 and positive(s.get('per')) and positive(s.get('per_med5'))
             and s['per'] < s['per_med5'])
@@ -88,7 +88,7 @@ def sell_reasons(s, entry=None):
         reasons.append('수급악화')
     v20, v60, ma20, change = (s.get(k) for k in ('vol20', 'vol60', 'ma20', 'change_pct'))
     if all(valid(x) for x in (v20, v60, c, ma20, change)) and v20 > v60 and c < ma20 and change <= -7:
-        reasons.append('패닉셀')
+        reasons.append('투매')
     if peak_out(s):
         reasons.append('피크아웃')
     roe, debt, op = (s.get(k) for k in ('roe3', 'debt', 'latest_op'))

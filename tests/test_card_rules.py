@@ -14,7 +14,7 @@ def stock(**changes):
     s = dict(code='TEST',name='테스트',market='Nasdaq',fin=False,close=100,ma120=90,ma200=80,ma20=98,
              vol20=.01,vol60=.02,vol_down=True,change_pct=1,price_date='2026-10-16',record=True,stale=False,
              latest_q='2026Q3',rev_q=True,rev_ttm=True,op_q=True,op_ttm=True,ni_ttm=50,
-             rev_ttm_value=500,prev_rev_ttm=400,op_ttm_value=60,prev_op_ttm=50,latest_op=15,
+             rev_ttm_value=500,prev_rev_ttm=400,op_ttm_value=60,prev_op_ttm=50,latest_op=15,prev_op=10,
              roe3=18,debt=30,profit_years=5,per=10,per_med5=15,pbr=.8,marcap=1e9,mcap_b=1,
              sector='정보기술',q={'labels':['2026Q3'],'rev':[100],'op':[15]})
     s.update(changes)
@@ -56,6 +56,18 @@ class RuleTest(unittest.TestCase):
         self.assertTrue(buy_eligible(stock()))
         self.assertTrue(buy_eligible(stock(per=None,ni_ttm=-5,roe3=-10,profit_years=0)))
         self.assertFalse(buy_eligible(stock(per=None,ni_ttm=None)))
+    def test_loss_turnaround_requires_quarterly_improvement(self):
+        for previous, latest, expected in [(-100,-60,True),(-100,20,True),(20,30,True),
+                                            (-60,-100,False),(30,20,False),(20,20,False),
+                                            (None,20,False),(20,None,False)]:
+            with self.subTest(previous=previous,latest=latest):
+                s=stock(ni_ttm=-1,per=None,prev_op=previous,latest_op=latest)
+                self.assertEqual(buy_eligible(s),expected)
+        h={};update_history([stock(ni_ttm=-1,per=None)],h,'us','2026-10-16 08:00')
+        rows=[stock(ni_ttm=-1,per=None,latest_op=10,prev_op=15)]
+        update_history(rows,h,'us','2026-10-17 08:00')
+        self.assertEqual(rows[0]['state'],'HOLD')
+
     def test_obv_exclusion_and_full_period(self):
         s=stock(obv_signal='이탈');self.assertFalse(buy_eligible(s))
         self.assertIsNone(obv_signal({'c':[100]*52,'v':[1]*52}))
@@ -66,7 +78,7 @@ class RuleTest(unittest.TestCase):
         s=stock(ni_ttm=-10,per=None);enrich(s);self.assertEqual(s['trend'],'턴어라운드')
     def test_all_sell_reasons(self):
         scenarios=[({'close':70},'추세이탈'),({'obv_signal':'이탈'},'수급악화'),
-                   ({'vol20':.03,'close':97,'change_pct':-7},'패닉셀'),
+                   ({'vol20':.03,'close':97,'change_pct':-7},'투매'),
                    ({'rev_ttm_value':300,'op_ttm_value':40},'피크아웃'),
                    ({'latest_op':-1},'적자전환'),({'roe3':11.9},'적자전환'),
                    ({'debt':70.1},'적자전환'),({'stale':True},'공시지연')]
@@ -74,7 +86,7 @@ class RuleTest(unittest.TestCase):
             with self.subTest(changes=changes):self.assertIn(reason,sell_reasons(stock(**changes)))
     def test_sell_boundaries(self):
         self.assertNotIn('추세이탈',sell_reasons(stock(close=78.4)))
-        self.assertNotIn('패닉셀',sell_reasons(stock(vol20=.02,close=97,change_pct=-7)))
+        self.assertNotIn('투매',sell_reasons(stock(vol20=.02,close=97,change_pct=-7)))
         self.assertNotIn('적자전환',sell_reasons(stock(roe3=12,debt=70,latest_op=0)))
     def test_finance_and_turnaround_exceptions(self):
         self.assertNotIn('적자전환',sell_reasons(stock(fin=True,roe3=8,debt=200,latest_op=-1)))

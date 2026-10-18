@@ -20,7 +20,7 @@ class PipelineTest(unittest.TestCase):
             bs={l:{'equity':500,'liab':100} for l in labs}
             ext={'q':q,'a':ann,'bs':bs,'shares':{'val':100,'end':'2026-06-30'}}
             px={'close':100,'ma120':90,'ma200':80,'ma20':95,'vol20':.01,'vol60':.02,
-                'change_pct':1,'price_date':'2026-10-16','high52':110,'qe':{l:150 for l in labs},'wk':None}
+                'change_pct':1,'price_date':'2026-10-16','high52':110,'qe':{l:150 for l in labs},'wk':None,'hunbot':{'lc_age':1,'super_bull':True,'panic':True,'sc':False,'lc':False}}
             def dump(folder,name,value): (folder/name).write_text(json.dumps(value))
             for name,value in [('listing.json',{'1':{'ticker':'TEST','name':'Test','exchange':'Nasdaq'}}),('sic.json',{'1':'1234'}),('fin.json',{'1':ext}),('prices.json',{'1':px})]:dump(us,name,value)
             per={}
@@ -32,6 +32,8 @@ class PipelineTest(unittest.TestCase):
                 data=json.loads((out/file).read_text());s=data['stocks'][0]
                 self.assertEqual(data['meta']['schema_version'],2)
                 self.assertEqual(s['ma200'],80)
+                self.assertEqual(s['prev_op'],q[labs[-2]]['op'])
+                self.assertEqual(s['hunbot'],px['hunbot'])
                 self.assertEqual(s['rev_ttm_value'],sum(q[l]['rev'] for l in labs[-4:]))
                 self.assertEqual(s['prev_rev_ttm'],sum(q[l]['rev'] for l in labs[-5:-1]))
                 self.assertEqual(s['state'],'BUY')

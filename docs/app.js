@@ -44,17 +44,21 @@ function card(s) {
   if(s.trend) chips.push(badge(s.trend));
   if(s.rev_q&&s.rev_ttm) chips.push(badge('매출 신고가'));
   if(s.op_q&&s.op_ttm) chips.push(badge('영업이익 신고가'));
-  (s.state_reasons||[]).forEach(r=>chips.push(badge(r,s.state.toLowerCase())));
-  if(!hasValuationBasis(s)) chips.push(badge('가치평가 기준 부족','muted'));
+  (s.state_reasons||[]).forEach(r=>chips.push(badge(r==='패닉셀'?'투매':r,s.state.toLowerCase())));
+  if([s.ni_ttm,s.op_ttm_value].some(v=>Number.isFinite(v)&&v<0)) chips.push(badge('적자','sell'));
   if(s.share_warn) chips.push(badge('주식 수 확인 필요','muted'));
   if(s.data_missing) chips.push(badge('수집 지연 · 이전 데이터','sell'));
-  const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},q=s.q||{};
+  const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},q=s.q||{},h=s.hunbot||{};
+  const signal=!s.data_missing && !h.sc && Number.isInteger(h.lc_age) && h.lc_age>=0 && h.lc_age<3
+    ? `<span class="buy-signal">▲(D+${h.lc_age})</span> ` : '';
+  const trends=[h.super_bull?'<b class="pos">초강세</b>':'',h.panic?'<b class="neg">패닉셀</b>':''].filter(Boolean).join(' · ')||'<b>-</b>';
+  const quote=(label,value,percent)=>`<span class="quote-item">${label} ${price(value)}<span class="${percent>0?'pos':percent<0?'neg':'neutral'}">(${signed(percent)})</span></span>`;
   return `<details class="card${s.obv_signal==='매집'?' bull':''}">
-    <summary><div class="top"><a class="name" href="${href}" aria-label="${esc(s.name)} TradingView 열기">${esc(s.name)}</a><a class="ticker" href="${href}">${esc(s.code)}</a></div><div class="chips">${chips.join('')}</div></summary>
-    <div class="detail"><div class="distances">120선 ${signed(s.dist_ma120)} · 200선 ${signed(s.dist_ma200)}</div><div class="grid">
-      ${metric('현재가',price(s.close))}${metric('ROE 3년',unit(s.roe3,'%'))}${metric(s.fin?'PBR':'부채비율',s.fin?unit(s.pbr,'배',2):unit(s.debt,'%',1))}
+    <summary><div class="top"><a class="name" href="${href}" aria-label="${esc(s.name)} TradingView 열기">${esc(s.name)}</a><a class="ticker" href="${href}">${signal}${esc(s.code)}</a></div><div class="chips">${chips.join('')}</div></summary>
+    <div class="detail"><div class="distances">${quote('현재가',s.close,s.change_pct)} · ${quote('120일선',s.ma120,s.dist_ma120)} · ${quote('200일선',s.ma200,s.dist_ma200)}</div><div class="grid">
+      ${metric('ROE 3년',unit(s.roe3,'%'))}${metric(s.fin?'PBR':'부채비율',s.fin?unit(s.pbr,'배',2):unit(s.debt,'%',1))}
       ${metric('PER (5년 중앙)',num(s.per)+' ('+num(s.per_med5)+')')}${metric('52주 고점 대비',unit(s.dd52,'%'))}${metric('시가총액',bil(s.marcap))}
-      ${metric('120일선',price(s.ma120))}${metric('200일선',price(s.ma200))}${metric('당일 등락률',signed(s.change_pct))}
+      <div class="m trend-metric"><span>추세</span>${trends}</div>
     </div>
     <div class="chart-cols"><div><h4>분기 매출</h4>${bars(q.labels,q.rev)}</div><div><h4>분기 영업이익 (금융업은 세전이익)</h4>${bars(q.labels,q.op)}</div></div>
     <div class="returns">${metric('예상 손실률',signed(m.expected_loss),'neg')}${metric('목표 수익률(1차)',signed(m.target_1))}${metric('목표 수익률(2차)',signed(m.target_2))}</div></div>
@@ -81,7 +85,7 @@ function render() {
   const selected=tabStocks(all,VALUE),insufficient=selected.filter(s=>!hasValuationBasis(s));
   const withBasis=selected.filter(hasValuationBasis);
   $('list').innerHTML=selected.length
-    ? stateSections(withBasis)+(insufficient.length?'<h2 class="unknown-title">가치평가 기준 부족</h2>'+stateSections(insufficient):'')
+    ? stateSections(withBasis)+(insufficient.length?'<h2 class="unknown-title">가치평가 기준 미달</h2>'+stateSections(insufficient):'')
     : `<div class="empty">${TAB_LABEL[VALUE]}에 해당하는 종목이 없습니다</div>`;
   $('list').querySelectorAll('a').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
 }

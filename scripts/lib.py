@@ -1,6 +1,7 @@
 """계산 함수 모음 (네트워크 없음). 입력은 SEC companyfacts JSON."""
 import datetime as dt
 import statistics
+from hunbot import latest_signal
 
 DUR_TAGS = {
     'rev': ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',
@@ -174,7 +175,7 @@ def weekly(dates, closes, vols, keep=105):
     return {'c': [float(f'{x:.5g}') for x in wc[-keep:]], 'v': [int(x) for x in wv[-keep:]]}
 
 
-def price_metrics(dates, closes, vols=None):
+def price_metrics(dates, closes, vols=None, highs=None, lows=None):
     n = len(closes)
     if n < 60:
         return None
@@ -191,6 +192,7 @@ def price_metrics(dates, closes, vols=None):
         'vol20': sd(20), 'vol60': sd(60), 'high52': max(closes[-250:]),
         'qe': {k: qe[k] for k in keep},
         'wk': weekly(dates, closes, vols) if vols else None,
+        'hunbot': latest_signal(closes, highs, lows),
     }
 
 
@@ -248,9 +250,9 @@ def analyze(ext, px, sh):
     r = lambda v, k=1: None if v is None else round(v, k)
     tail = seq[-12:]
     return {
-        **{k: px.get(k) for k in ('close', 'ma20', 'ma120', 'ma200', 'vol20', 'vol60', 'change_pct', 'price_date')},
+        **{k: px.get(k) for k in ('close', 'ma20', 'ma120', 'ma200', 'vol20', 'vol60', 'change_pct', 'price_date', 'hunbot')},
         'ni_ttm': ni_now, 'rev_ttm_value': rev_t[-1], 'prev_rev_ttm': rev_t[-2],
-        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'latest_op': op_q[-1],
+        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'latest_op': op_q[-1], 'prev_op': op_q[-2],
         'latest_q': seq[-1], **rec, 'marcap': None if marcap is None else round(marcap), 'share_warn': share_warn,
         'roe3': r(roe3), 'debt': r(debt), 'profit_years': profit_years,
         'per': r(per_now), 'per_med5': r(per_med), 'pbr': r(pbr, 2),

@@ -11,6 +11,7 @@ import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
 from lib import extract, shares_out, price_metrics
+from hunbot import completed_day
 
 # SEC는 연락처가 담긴 User-Agent를 요구한다
 UA = {'User-Agent': os.environ.get('SEC_USER_AGENT') or sys.exit('SEC_USER_AGENT 시크릿이 없습니다 (예: Hong Gildong you@gmail.com)')}
@@ -93,9 +94,11 @@ for i in range(0, len(tl), 100):
         continue
     for t in chunk:
         try:
-            x = df[t][['Close', 'Volume']].dropna(subset=['Close'])
+            x = df[t][['Close', 'High', 'Low', 'Volume']].dropna(subset=['Close'])
+            x = x.loc[[completed_day(i.date(), 'us') for i in x.index]]
             m = price_metrics([i.date() for i in x.index], x['Close'].astype(float).tolist(),
-                              x['Volume'].fillna(0).astype(float).tolist())
+                              x['Volume'].fillna(0).astype(float).tolist(),
+                              x['High'].astype(float).tolist(), x['Low'].astype(float).tolist())
             if m:
                 prices[str(tickers[t])] = m
         except KeyError:
