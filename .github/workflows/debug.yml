@@ -1,0 +1,16 @@
+name: debug
+on: workflow_dispatch
+permissions:
+  actions: read
+  contents: read
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh run view 39147331859 -R ${{ github.repository }} --log > all.log || true
+          grep -n "Korea data" all.log | head -3
+          K=$(grep "Korea data and history" all.log | tail -60 | cut -c1-300 | tr '\n' ' ' | tail -c 3500)
+          echo "::warning title=kr::$K"
+        env:
+          GH_TOKEN: ${{ github.token }}
