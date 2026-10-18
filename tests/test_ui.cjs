@@ -32,11 +32,18 @@ for(const age of [null,-1,3,4]) assert.ok(!card({...s,hunbot:{lc_age:age}}).incl
 assert.ok(!card({...s,hunbot:{lc_age:1,sc:true}}).includes('▲'));
 assert.ok(!card({...s,data_missing:true,hunbot:{lc_age:1}}).includes('▲'));
 const both=card({...s,hunbot:{super_bull:true,panic:true}});
-assert.ok(both.includes('class="pos">초강세'));assert.ok(both.includes('class="neg">패닉셀'));
+assert.ok(both.includes('data-tag="초강세"'));assert.ok(both.includes('class="chip tag-info sell" data-tag="패닉셀"'));
 assert.ok(card({...s,state_reasons:['패닉셀']}).includes('>투매<'));
 const detail=card({...s,close:1.95,ma120:1.93,ma200:2.11,change_pct:-2.5,dist_ma120:1,dist_ma200:-7.4});
 assert.match(detail,/현재가 \$1.95<span class="neg">\(-2.5%\)/);
-assert.match(detail,/120일선 \$1.93<span class="pos">\(\+1.0%\)/);
-assert.match(detail,/200일선 \$2.11<span class="neg">\(-7.4%\)/);
+assert.match(detail,/120일선 <span class="pos">\$1.93/);
+assert.match(detail,/200일선 <span class="neg">\$2.11/);
 assert.equal((detail.split('<div class="grid">')[1].split('<div class="chart-cols">')[0].match(/class="m(?: |")/g)||[]).length,6);
 console.log('State-based tabs and signal / loss badge / quote formatting checks passed');
+
+assert.ok(!detail.includes('+1.0%'));assert.ok(!detail.includes('-7.4%'));
+assert.ok(detail.indexOf('class="distances"')<detail.indexOf('</summary>'));
+assert.ok(detail.includes('기준정보'));assert.ok(!detail.includes('trend-metric'));
+const labels=card({...s,trend:'상승추세',rev_q:true,rev_ttm:true,op_q:true,op_ttm:true});
+assert.ok(labels.includes('data-tag="상승우위"'));assert.ok(labels.includes('data-tag="매출"'));assert.ok(labels.includes('data-tag="영익"'));
+assert.ok(!labels.includes('NYSE American · 2026Q2'));assert.ok(labels.includes('share-card'));

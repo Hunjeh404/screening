@@ -13,3 +13,16 @@
 @media(max-width:540px){.condition-states>div{grid-template-columns:1fr;gap:5px}}
 
 .pos{color:var(--accent)}.neutral{color:var(--text)}.buy-signal{color:#E63946;white-space:nowrap}.quote-item{display:inline-block;white-space:nowrap}.trend-metric b{display:inline-block}
+
+/* Card actions, explanations, and full-card image export. */
+.ticker-actions{display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:auto}.ticker-actions .ticker{margin:0}
+.share-card{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:6px;border:0;background:transparent;color:var(--sub);cursor:pointer;flex-shrink:0}
+.share-card svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:1.7}.share-card:disabled{opacity:.45;cursor:wait}
+.tag-info{border:0;font-family:inherit;line-height:1.5;cursor:pointer}.tag-info:hover{filter:brightness(1.2)}
+.card>summary .distances{margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+#tag-dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(420px,calc(100% - 32px));max-height:80vh;overflow:auto}
+#tag-dialog::backdrop{background:#0009}.popup-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.popup-head h2{font-size:17px;margin:0;color:var(--accent)}
+#tag-close{background:transparent;border:0;color:var(--sub);font-size:26px;line-height:1;width:32px;height:32px;cursor:pointer}
+#tag-reasons{padding-left:19px;margin:12px 0 2px;font-size:13px;line-height:1.8}#tag-reasons li+li{margin-top:5px}
+.export-stage{position:fixed;left:-10000px;top:0;padding:2px;background:var(--bg);pointer-events:none}
+.export-stage .card{margin:0}.export-stage .name{white-space:normal;overflow:visible;text-overflow:clip}.export-stage .detail{display:block}

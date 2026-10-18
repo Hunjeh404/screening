@@ -142,7 +142,7 @@ def enrich(s):
     if loss_turnaround(s) or (all(positive(x) for x in (c, a, b)) and c >= a and c < b):
         s['trend'] = '턴어라운드'
     elif all(positive(x) for x in (c, a, b)) and c >= a and c >= b and positive(s.get('per')) and not loss_turnaround(s):
-        s['trend'] = '상승추세'
+        s['trend'] = '상승우위'
     for key in ('ma120', 'ma200'):
         s['dist_' + key] = round((c / s[key] - 1) * 100, 1) if positive(c) and positive(s.get(key)) else None
     risk, t1, t2 = calc_card_metrics(c, a, b, s.get('per'), s.get('per_med5'), s.get('pbr'), s.get('fin'), s.get('mcap_b'))

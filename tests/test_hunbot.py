@@ -53,7 +53,7 @@ class HunbotTest(unittest.TestCase):
         signals=daily_signals(close,high,low)
         self.assertTrue(any(s['lc'] for s in signals));self.assertTrue(any(s['sc'] for s in signals))
         high[-1]=float('nan')
-        self.assertEqual(daily_signals(close,high,low)[-1],dict(super_bull=None,panic=None,lc=None,sc=None,lc_age=None))
+        self.assertEqual({k:v for k,v in daily_signals(close,high,low)[-1].items() if k!='details'},dict(super_bull=None,panic=None,lc=None,sc=None,lc_age=None))
         dates=[dt.date(2025,1,1)+dt.timedelta(days=i) for i in range(300)]
         self.assertIsNone(price_metrics(dates,close)['hunbot'])
         self.assertEqual(price_metrics(dates,close,highs=[c+1 for c in close],lows=low)['hunbot'],signals[-1])

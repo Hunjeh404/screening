@@ -73,7 +73,7 @@ class RuleTest(unittest.TestCase):
         self.assertIsNone(obv_signal({'c':[100]*52,'v':[1]*52}))
         self.assertEqual(obv_signal({'c':list(range(153,100,-1)),'v':[1]*53}),'이탈')
     def test_trend(self):
-        s=stock();enrich(s);self.assertEqual(s['trend'],'상승추세')
+        s=stock();enrich(s);self.assertEqual(s['trend'],'상승우위')
         s=stock(ma200=120);enrich(s);self.assertEqual(s['trend'],'턴어라운드')
         s=stock(ni_ttm=-10,per=None);enrich(s);self.assertEqual(s['trend'],'턴어라운드')
     def test_all_sell_reasons(self):

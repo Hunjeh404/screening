@@ -113,7 +113,11 @@ def daily_signals(closes, highs, lows):
                     sc = closes[i-1] >= upper[i-1] and close < upper[i]
                 elif close <= basis[i] and all(finite(v) for v in (k[i], k[i-1], d[i], d[i-1])):
                     sc = k[i-1] >= d[i-1] and k[i] < d[i]
-        signals.append(dict(super_bull=super_bull, panic=panic, lc=lc, sc=sc))
+        signals.append(dict(super_bull=super_bull, panic=panic, lc=lc, sc=sc, details={
+            'sma5': sma5[i], 'bb_basis': basis[i], 'prev_bb_basis': basis[i-1] if i else None,
+            'stoch20_ema2': e2[i], 'prev_stoch20_ema2': e2[i-1] if i else None,
+            'panic_rsi': panic_rsi[i],
+        }))
     for signal, age in zip(signals, signal_ages(signals)):
         signal['lc_age'] = age
     return signals
