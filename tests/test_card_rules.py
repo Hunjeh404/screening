@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from card_rules import calc_card_metrics, buy_eligible, enrich, hold_reasons, sell_reasons, update_history, persist_cards, obv_signal, valuation
+from card_rules import calc_card_metrics, buy_eligible, enrich, hold_reasons, sell_reasons, update_history, persist_cards, obv_signal, valuation, valuation_insufficient
 from lib import price_metrics, analyze
 
 
@@ -89,22 +89,28 @@ class RuleTest(unittest.TestCase):
                ({'roe3':14.9},'재무보합'),({'debt':50.1},'재무보합'),({'fin':True,'roe3':9.9},'재무보합')]
         for changes,reason in cases:
             with self.subTest(changes=changes):self.assertIn(reason,hold_reasons(stock(**changes)))
-    def test_valuation(self):
-        for per,result in [(14.9,'LOW'),(15,'FAIR'),(15.1,'HIGH'),(None,None)]:
-            self.assertEqual(valuation(stock(per=per)),result)
-        self.assertEqual(valuation(stock(fin=True,pbr=1)),'FAIR')
+    def test_valuation_uses_state_not_per_or_pbr(self):
+        for state, result in [('BUY', 'LOW'), ('HOLD', 'FAIR'), ('SELL', 'HIGH'), (None, None)]:
+            for per in (None, 1, 15, 99):
+                self.assertEqual(valuation(stock(state=state, per=per)), result)
+        self.assertTrue(valuation_insufficient(stock(per=None)))
+        self.assertTrue(valuation_insufficient(stock(per_med5=None)))
+        self.assertFalse(valuation_insufficient(stock()))
+        self.assertFalse(valuation_insufficient(stock(fin=True, per=None, pbr=2)))
+
 
 
 class HistoryTest(unittest.TestCase):
     def test_buy_hold_sell_reentry_and_reload(self):
         h={}
         for day,changes,state in [(16,{},'BUY'),(17,{'vol_down':False,'vol20':.03},'HOLD'),
-                                  (18,{'close':70},'SELL'),(19,{'record':False},'SELL'),(20,{},'BUY')]:
+                                  (18,{'close':70},'SELL'),(19,{'record':False},'HOLD'),(20,{},'BUY')]:
             rows=[stock(price_date=f'2026-10-{day}',**changes)]
             update_history(rows,h,'us',f'2026-10-{day} 08:00');h=json.loads(json.dumps(h))
             self.assertEqual(rows[0]['state'],state)
+            self.assertEqual(rows[0]['valuation'], {'BUY':'LOW','HOLD':'FAIR','SELL':'HIGH'}[state])
         e=h['tickers']['us:TEST'];self.assertEqual(e['first_entry_date'],'2026-10-16')
-        self.assertEqual([t['to'] for t in e['transitions']],['BUY','HOLD','SELL','BUY'])
+        self.assertEqual([t['to'] for t in e['transitions']],['BUY','HOLD','SELL','HOLD','BUY'])
     def test_never_buy_never_sell_and_sell_priority(self):
         rows=[stock(close=70)];h={};update_history(rows,h,'us','2026-10-16 08:00')
         self.assertIsNone(rows[0]['state']);self.assertEqual(h['tickers'],{})

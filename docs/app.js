@@ -7,6 +7,12 @@ const signed = v => v == null ? '–' : (v > 0 ? '+' : '') + num(v) + '%';
 let DATA = null, MKT = 'us', VALUE = 'LOW', requestId = 0;
 const FILES = {us:'data.json', kr:'data_kr.json'}, CACHE = {};
 const STATES = {BUY:'매수 카드', HOLD:'보유 카드', SELL:'매도 카드'};
+const TAB_STATE = {LOW:'BUY', FAIR:'HOLD', HIGH:'SELL'};
+const TAB_LABEL = {LOW:'저평가', FAIR:'적정가치', HIGH:'고평가'};
+const hasValuationBasis = s => s.fin
+  ? Number.isFinite(s.pbr) && s.pbr > 0
+  : Number.isFinite(s.per) && s.per > 0 && Number.isFinite(s.per_med5) && s.per_med5 > 0;
+const tabStocks = (stocks, tab) => stocks.filter(s => s.state === TAB_STATE[tab]);
 const price = v => v == null ? '–' : (MKT === 'kr' ? num(v,0)+'원' : '$'+num(v,2));
 const mil = v => v == null ? '–' : MKT === 'kr' ? num(v/1e8,0)+'억' : '$'+num(v/1e6,0)+'M';
 const bil = v => v == null ? '–' : MKT === 'kr' ? (v >= 1e12 ? num(v/1e12)+'조' : num(v/1e8,0)+'억') : '$'+num(v/1e9)+'B';
@@ -39,7 +45,7 @@ function card(s) {
   if(s.rev_q&&s.rev_ttm) chips.push(badge('매출 신고가'));
   if(s.op_q&&s.op_ttm) chips.push(badge('영업이익 신고가'));
   (s.state_reasons||[]).forEach(r=>chips.push(badge(r,s.state.toLowerCase())));
-  if(!s.valuation) chips.push(badge('가치평가 미산출','muted'));
+  if(!hasValuationBasis(s)) chips.push(badge('가치평가 기준 부족','muted'));
   if(s.share_warn) chips.push(badge('주식 수 확인 필요','muted'));
   if(s.data_missing) chips.push(badge('수집 지연 · 이전 데이터','sell'));
   const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},h=s.history||{},q=s.q||{};
@@ -76,10 +82,13 @@ function stateSections(stocks) {
 function render() {
   if(!DATA) return;
   const all=DATA.stocks.filter(s=>STATES[s.state]);
-  const selected=all.filter(s=>s.valuation===VALUE),unknown=all.filter(s=>!s.valuation);
+  const selected=tabStocks(all,VALUE),insufficient=selected.filter(s=>!hasValuationBasis(s));
   const totals=Object.keys(STATES).map(st=>`${STATES[st]} ${selected.filter(s=>s.state===st).length}`).join(' · ');
-  $('count').innerHTML=`전체 ${num(DATA.meta.count,0)}종목 · 선택 탭 <b>${selected.length}종목</b> · ${totals}${unknown.length?` · 미산출 ${unknown.length}종목`:''}`;
-  $('list').innerHTML=(selected.length?stateSections(selected):'<div class="empty">이 가치평가 구간에 추적 중인 종목이 없습니다</div>')+(unknown.length?'<h2 class="unknown-title">가치평가 미산출</h2>'+stateSections(unknown):'');
+  $('count').innerHTML=`전체 ${num(DATA.meta.count,0)}종목 · 선택 탭 <b>${selected.length}종목</b> · ${totals}${insufficient.length?` · 가치평가 기준 부족 ${insufficient.length}종목`:''}`;
+  const withBasis=selected.filter(hasValuationBasis);
+  $('list').innerHTML=selected.length
+    ? stateSections(withBasis)+(insufficient.length?'<h2 class="unknown-title">가치평가 기준 부족</h2>'+stateSections(insufficient):'')
+    : `<div class="empty">${TAB_LABEL[VALUE]} (${STATES[TAB_STATE[VALUE]]})에 해당하는 종목이 없습니다</div>`;
   $('list').querySelectorAll('a').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
 }
 async function load(m) {
@@ -102,4 +111,4 @@ if(typeof document!=='undefined'){
     VALUE=b.dataset.value;document.querySelectorAll('[data-value]').forEach(x=>{const on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-selected',String(on));});render();
   }));load('us');
 }
-if(typeof module!=='undefined')module.exports={tradingViewUrl,esc,bars,card,sectors};
+if(typeof module!=='undefined')module.exports={tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis};

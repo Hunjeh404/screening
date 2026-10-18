@@ -21,10 +21,42 @@
   <div id="banner" role="status"></div>
   <details class="filters">
     <summary>검색조건</summary>
-    <div class="group"><h3>매수 카드 편입</h3><p class="note">매출 또는 영업이익의 단일 분기·최근 4분기 합계 동시 신고가. 최신 재무가 2분기 이상 지연되면 제외합니다.</p><p class="note">종가가 120일선 또는 200일선 이상이고, 20일 변동성 &lt; 60일 변동성.</p><label class="row">주봉 OBV 이탈 신호 종목 제외<input type="checkbox" checked disabled aria-label="주봉 OBV 이탈 신호 종목 제외 (항상 적용)"></label></div>
-    <div class="cols"><div class="group"><h3>일반 기업</h3><p class="note">3년 평균 ROE ≥ 15% · 부채비율 ≤ 50% · 연속 영업흑자 ≥ 5년 · PER &lt; 5년 중앙값.</p></div><div class="group"><h3>금융업·적자 턴어라운드</h3><p class="note">금융업: PBR ≤ 1배 · 3년 평균 ROE ≥ 10%. 적자 턴어라운드: 최근 4분기 순이익 또는 영업이익 적자이며 매출의 단일 분기·최근 4분기 합계 동시 신고가.</p></div></div>
-    <div class="group"><h3>보유·매도 이력</h3><p class="note">최초 매수 편입 이후 매수 조건에서 벗어나도 이력을 유지합니다. 매도 조건을 우선 판정하며, 한 번도 편입되지 않은 종목은 매도로 표시하지 않습니다. 수집 실패 시 마지막 검증 상태를 보존합니다.</p></div>
-    <div class="group"><h3>가치평가 기준</h3><p class="note">일반 기업은 PER 5년 중앙값, 금융업은 PBR 1배보다 낮으면 저평가, 같으면 적정가치, 높으면 고평가입니다. 산출 불가 종목은 각 탭 아래 별도로 표시합니다. 보유 사유 ‘적정가치’는 명세에 따라 PER 중앙값 이상 또는 금융업 PBR 1배 초과를 뜻합니다.</p></div>
+    <div class="group">
+      <h3>실적 신고가 (항상 적용)</h3>
+      <div class="condition-tags"><span class="condition-tag">매출 또는 영업이익</span><span class="condition-tag">직전 분기 사상 최고</span><span class="condition-tag">최근 4분기 합계 사상 최고</span></div>
+      <p class="condition-note">매출·영업이익 중 하나가 두 신고가 조건을 모두 충족해야 합니다.</p>
+      <p class="condition-note">최신 분기가 2분기 이상 늦은 종목은 제외합니다.</p>
+    </div>
+    <div class="group">
+      <h3>기술적 분석 (항상 적용)</h3>
+      <div class="condition-tags"><span class="condition-tag">종가 ≥ 120일선 또는 200일선</span><span class="condition-join" aria-label="그리고">AND</span><span class="condition-tag">20일 변동성 &lt; 60일 변동성</span></div>
+      <label class="row">주봉 OBV 이탈 신호 종목 제외<input type="checkbox" checked disabled aria-label="주봉 OBV 이탈 신호 종목 제외 (항상 적용)"></label>
+      <p class="condition-note">주가와 OBV의 기간 변화를 각각 평균 주간 변동폭으로 나눠 다이버전스를 확인합니다. 주봉 52주 기준입니다.</p>
+    </div>
+    <div class="cols">
+      <div class="group">
+        <h3>일반 기업</h3>
+        <div class="condition-tags"><span class="condition-tag">3년 평균 ROE ≥ 15%</span><span class="condition-tag">부채비율 ≤ 50%</span><span class="condition-tag">연속 흑자 연수 ≥ 5년</span><span class="condition-tag">PER &lt; 5년 중앙값</span></div>
+      </div>
+      <div class="group">
+        <h3>금융업 (은행·증권·보험·지주 등)</h3>
+        <div class="condition-tags"><span class="condition-tag">PBR ≤ 1배</span><span class="condition-tag">3년 평균 ROE ≥ 10%</span></div>
+      </div>
+    </div>
+    <div class="group">
+      <h3>적자 턴어라운드</h3>
+      <div class="condition-tags"><span class="condition-tag">최근 4분기 순이익 또는 영업이익 적자</span><span class="condition-tag">직전 분기 매출 신고가</span><span class="condition-tag">최근 4분기 합계 매출 신고가</span></div>
+      <p class="condition-note">비금융 기업의 별도 편입 조건입니다. 기술적 분석 조건은 동일하게 적용합니다.</p>
+    </div>
+    <div class="group">
+      <h3>카드 분류</h3>
+      <dl class="condition-states">
+        <div><dt>저평가 · 매수</dt><dd>매수 필요조건 충족</dd></div>
+        <div><dt>적정가치 · 보유</dt><dd>과거 매수 이력 있음 <span class="condition-separator">|</span> 매수 필요조건 불충족 <span class="condition-separator">|</span> 매도 조건 불충족</dd></div>
+        <div><dt>고평가 · 매도</dt><dd>과거 매수·보유 이력 있음 <span class="condition-separator">|</span> 매도 조건 중 하나 이상 충족</dd></div>
+      </dl>
+      <p class="condition-note">매도 조건을 먼저 확인합니다. ‘가치평가 기준 부족’은 PER·5년 중앙값 또는 금융업 PBR 계산에 필요한 기준이 부족하다는 표시입니다.</p>
+    </div>
   </details>
   <div class="count" id="count" aria-live="polite"></div>
   <div id="list"></div>

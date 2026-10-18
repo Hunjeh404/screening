@@ -125,11 +125,14 @@ def hold_reasons(s):
 
 
 def valuation(s):
-    # 별도 프리미엄/허용오차 명세가 없어 기준값 자체를 경계로 사용한다.
-    value, base = (s.get('pbr'), 1) if s.get('fin') else (s.get('per'), s.get('per_med5'))
-    if not positive(value) or not positive(base):
-        return None
-    return 'LOW' if value < base else 'HIGH' if value > base else 'FAIR'
+    """탭은 PER/PBR 구간이 아니라 매수·보유·매도 상태의 표시 이름이다."""
+    return {'BUY': 'LOW', 'HOLD': 'FAIR', 'SELL': 'HIGH'}.get(s.get('state'))
+
+
+def valuation_insufficient(s):
+    if s.get('fin'):
+        return not positive(s.get('pbr'))
+    return not (positive(s.get('per')) and positive(s.get('per_med5')))
 
 
 def enrich(s):
@@ -147,7 +150,7 @@ def enrich(s):
                     'stop_price': round(c * (1 + risk / 100), 2) if risk is not None else None,
                     'target_1_price': round(c * (1 + t1 / 100), 2) if t1 is not None else None,
                     'target_2_price': round(c * (1 + t2 / 100), 2) if t2 is not None else None}
-    s['valuation'] = valuation(s)
+    s['valuation_insufficient'] = valuation_insufficient(s)
     s['buy_eligible'] = buy_eligible(s)
 
 
@@ -163,10 +166,8 @@ def update_history(stocks, history, market, generated):
         old = entries.get(key)
         reasons = sell_reasons(s, old)
         state = 'SELL' if old and reasons else 'BUY' if s['buy_eligible'] and not reasons else 'HOLD' if old else None
-        # SELL은 신규 편입 조건을 다시 충족하기 전까지 유지한다.
-        if old and old['state'] == 'SELL' and state == 'HOLD':
-            state, reasons = 'SELL', old.get('reasons', [])
         s.update(state=state, state_reasons=reasons if state == 'SELL' else hold_reasons(s) if state == 'HOLD' else [])
+        s['valuation'] = valuation(s)
         if not state:
             continue
         day = generated[:10]
@@ -191,6 +192,8 @@ def update_history(stocks, history, market, generated):
     for key, old in entries.items():
         if key.startswith(market + ':') and key not in seen and old.get('snapshot'):
             s = copy.deepcopy(old['snapshot'])
+            s['valuation'] = valuation(s)
+            s['valuation_insufficient'] = valuation_insufficient(s)
             s['data_missing'] = True
             s['history'] = {k: v for k, v in old.items() if k != 'snapshot'}
             stocks.append(s)
