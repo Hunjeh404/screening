@@ -6,7 +6,7 @@ const unit = (v, u, k = 1) => v == null ? '–' : num(v,k) + u;
 const signed = v => v == null ? '–' : (v > 0 ? '+' : '') + num(v) + '%';
 let DATA = null, MKT = 'us', VALUE = 'LOW', requestId = 0;
 const FILES = {us:'data.json', kr:'data_kr.json'}, CACHE = {};
-const STATES = {BUY:'매수 카드', HOLD:'보유 카드', SELL:'매도 카드'};
+const STATES = {BUY:'저평가', HOLD:'적정가치', SELL:'고평가'};
 const TAB_STATE = {LOW:'BUY', FAIR:'HOLD', HIGH:'SELL'};
 const TAB_LABEL = {LOW:'저평가', FAIR:'적정가치', HIGH:'고평가'};
 const hasValuationBasis = s => s.fin
@@ -40,7 +40,7 @@ function bars(labels = [], vals = [], color = 'var(--accent)') {
 const badge = (text, cls='') => `<span class="chip ${cls}">${esc(text)}</span>`;
 const metric = (label,value,cls='',extra='') => `<div class="m"><span>${esc(label)}</span><b class="${cls}">${esc(value)}</b>${extra?`<small>${esc(extra)}</small>`:''}</div>`;
 function card(s) {
-  const chips=[badge(STATES[s.state] || '',s.state.toLowerCase()),badge(s.latest_q,'muted')];
+  const chips=[badge(s.latest_q,'muted')];
   if(s.trend) chips.push(badge(s.trend));
   if(s.rev_q&&s.rev_ttm) chips.push(badge('매출 신고가'));
   if(s.op_q&&s.op_ttm) chips.push(badge('영업이익 신고가'));
@@ -48,7 +48,7 @@ function card(s) {
   if(!hasValuationBasis(s)) chips.push(badge('가치평가 기준 부족','muted'));
   if(s.share_warn) chips.push(badge('주식 수 확인 필요','muted'));
   if(s.data_missing) chips.push(badge('수집 지연 · 이전 데이터','sell'));
-  const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},h=s.history||{},q=s.q||{};
+  const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},q=s.q||{};
   return `<details class="card${s.obv_signal==='매집'?' bull':''}">
     <summary><div class="top"><div class="identity"><a class="name" href="${href}" aria-label="${esc(s.name)} TradingView 열기">${esc(s.name)}</a><a class="ticker" href="${href}">${esc(s.code)} · ${esc(s.market)}</a></div><div class="header-right"><span class="caret" aria-hidden="true">⌄</span><div class="distances">120선 ${signed(s.dist_ma120)}<br>200선 ${signed(s.dist_ma200)}</div></div></div><div class="chips">${chips.join('')}</div></summary>
     <div class="detail"><div class="grid">
@@ -59,9 +59,7 @@ function card(s) {
     </div><p class="note">시세 ${esc(s.price_date||'–')}</p>
     <div class="chart-cols"><div><h4>분기 매출</h4>${bars(q.labels,q.rev)}</div><div><h4>분기 영업이익 (금융업은 세전이익)</h4>${bars(q.labels,q.op)}</div></div>
     <div class="grid">${metric('TTM 매출',mil(s.rev_ttm_value))}${metric('직전 TTM 매출',mil(s.prev_rev_ttm))}${metric('TTM 영업이익',mil(s.op_ttm_value))}${metric('직전 TTM 영업이익',mil(s.prev_op_ttm))}${metric('TTM 순이익',mil(s.ni_ttm))}${metric('최근 분기 영업이익',mil(s.latest_op))}</div>
-    <div class="history"><p class="note">최초 편입 ${esc(h.first_entry_date||'–')} · 편입가 ${price(h.entry_price)} · 편입 후 최고 종가 ${price(h.highest_price)}</p>${h.entry_metrics?`<p class="note">편입 시 고정 손절가 ${price(h.entry_metrics.stop_price)} · 1차 목표가 ${price(h.entry_metrics.target_1_price)} · 2차 목표가 ${price(h.entry_metrics.target_2_price)}</p>`:''}<ol>${(h.transitions||[]).map(t=>`<li>${esc(t.date)} · ${esc(STATES[t.from]||'최초 편입')} → ${esc(STATES[t.to]||t.to)} · ${price(t.price)}${t.reasons?.length?' · '+esc(t.reasons.join(' · ')):''}</li>`).join('')}</ol></div>
-    <p class="note">현재가 기준 목표 · 1차 도달 시 TS −8~−10% · 2차 도달 시 TS −5~−6%</p>
-    <div class="returns">${metric('예상 손실률',signed(m.expected_loss),'neg','손절가 '+price(m.stop_price))}${metric('1차 수익률',signed(m.target_1),'','목표가 '+price(m.target_1_price))}${metric('2차 수익률',signed(m.target_2),'','목표가 '+price(m.target_2_price))}</div></div>
+    <div class="returns">${metric('예상 손실률',signed(m.expected_loss),'neg')}${metric('목표 수익률(1차)',signed(m.target_1))}${metric('목표 수익률(2차)',signed(m.target_2))}</div></div>
   </details>`;
 }
 function sectors(stocks) {
@@ -69,7 +67,7 @@ function sectors(stocks) {
   stocks.forEach(s=>(groups[s.sector||'미분류']||=[]).push(s));
   return Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length||a.localeCompare(b,'ko')).map(g=>{
     const sorted=groups[g].sort((a,b)=>(b.marcap??-Infinity)-(a.marcap??-Infinity)||a.code.localeCompare(b.code));
-    // 섹터 내 전체 시총 순서를 유지하며 상태는 카드 태그로 함께 표시한다.
+    // 섹터 내 시가총액 내림차순을 유지한다.
     return `<details class="sector-group"><summary>${esc(g)}<span class="sector-count">${sorted.length}종목</span></summary>${sorted.map(card).join('')}</details>`;
   }).join('');
 }
@@ -83,27 +81,25 @@ function render() {
   if(!DATA) return;
   const all=DATA.stocks.filter(s=>STATES[s.state]);
   const selected=tabStocks(all,VALUE),insufficient=selected.filter(s=>!hasValuationBasis(s));
-  const totals=Object.keys(STATES).map(st=>`${STATES[st]} ${selected.filter(s=>s.state===st).length}`).join(' · ');
-  $('count').innerHTML=`전체 ${num(DATA.meta.count,0)}종목 · 선택 탭 <b>${selected.length}종목</b> · ${totals}${insufficient.length?` · 가치평가 기준 부족 ${insufficient.length}종목`:''}`;
   const withBasis=selected.filter(hasValuationBasis);
   $('list').innerHTML=selected.length
     ? stateSections(withBasis)+(insufficient.length?'<h2 class="unknown-title">가치평가 기준 부족</h2>'+stateSections(insufficient):'')
-    : `<div class="empty">${TAB_LABEL[VALUE]} (${STATES[TAB_STATE[VALUE]]})에 해당하는 종목이 없습니다</div>`;
+    : `<div class="empty">${TAB_LABEL[VALUE]}에 해당하는 종목이 없습니다</div>`;
   $('list').querySelectorAll('a').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
 }
 async function load(m) {
   const id=++requestId;MKT=m;DATA=null;
   document.querySelectorAll('[data-market]').forEach(b=>{const on=b.dataset.market===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));});
-  $('banner').innerHTML='';$('list').innerHTML='';$('count').textContent='불러오는 중…';$('generated').textContent='…';$('quarter').textContent='…';
+  $('banner').innerHTML='';$('list').innerHTML='<div class="empty">불러오는 중…</div>';$('generated').textContent='…';$('quarter').textContent='…';
   try {
     const d=await(CACHE[m]||(CACHE[m]=fetch(FILES[m],{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();})));
     if(id!==requestId)return;
     $('generated').textContent=d.meta.generated;$('quarter').textContent=d.meta.newest_q;
-    if(d.meta.schema_version!==2){$('banner').innerHTML='<div class="banner">200일선 및 카드 이력 데이터를 갱신 중입니다. 새 데이터가 생성되면 표시됩니다.</div>';$('count').textContent='';return;}
+    if(d.meta.schema_version!==2){$('banner').innerHTML='<div class="banner">200일선 및 카드 이력 데이터를 갱신 중입니다. 새 데이터가 생성되면 표시됩니다.</div>';$('list').innerHTML='';return;}
     DATA=d;
     if(d.meta.sample)$('banner').innerHTML='<div class="banner">가상의 샘플 데이터입니다.</div>';
     render();
-  }catch(e){delete CACHE[m];if(id===requestId){$('count').textContent='';$('banner').innerHTML='<div class="banner">'+(m==='kr'?'한국 데이터를 불러오지 못했습니다.':'데이터를 불러오지 못했습니다.')+' 잠시 후 새로고침해 주세요.</div>';}}
+  }catch(e){delete CACHE[m];if(id===requestId){$('list').innerHTML='';$('banner').innerHTML='<div class="banner">'+(m==='kr'?'한국 데이터를 불러오지 못했습니다.':'데이터를 불러오지 못했습니다.')+' 잠시 후 새로고침해 주세요.</div>';}}
 }
 if(typeof document!=='undefined'){
   document.querySelectorAll('[data-market]').forEach(b=>b.addEventListener('click',()=>load(b.dataset.market)));

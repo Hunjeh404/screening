@@ -27,7 +27,6 @@ const server=http.createServer((req,res)=>{
  await page.locator('.filters>summary').click();
  assert.equal(await page.locator('.filters input[type=number]').count(),0);
  assert.ok(await page.locator('.condition-tag').count()>10);
- assert.match(await page.locator('.condition-states').innerText(),/적정가치 · 보유/);
  assert.match(await page.locator('.sector-group>summary').first().innerText(),/정보기술/);
  await page.locator('.sector-group>summary').first().click();
  const first=page.locator('.card').first();
@@ -38,8 +37,8 @@ const server=http.createServer((req,res)=>{
  assert.equal(await first.locator('svg').count(),2);
  assert.ok(await first.locator('.distances').isVisible());
  await first.locator('.chips').click();assert.equal(await first.getAttribute('open'),null);
- await page.locator('[data-value="FAIR"]').click();assert.match(await page.locator('#list').innerText(),/보유 카드/);assert.equal(await page.locator('.card').count(),1);
- await page.locator('[data-value="HIGH"]').click();assert.match(await page.locator('#list').innerText(),/매도 카드/);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/가치평가 기준 부족/);
+ await page.locator('[data-value="FAIR"]').click();assert.match(await page.locator('#list').innerText(),/적정가치/);assert.equal(await page.locator('.card').count(),1);
+ await page.locator('[data-value="HIGH"]').click();assert.match(await page.locator('#list').innerText(),/고평가/);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/가치평가 기준 부족/);
  for(const width of [360,820]){
   await page.setViewportSize({width,height:1000});
   const geometry=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth,market:document.querySelector('.markets').getBoundingClientRect().top,value:document.querySelector('.values').getBoundingClientRect().top}));
