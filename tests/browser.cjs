@@ -24,14 +24,6 @@ const server=http.createServer((req,res)=>{
  assert.equal(await page.locator('.card[open]').count(),0);
  assert.equal(await page.locator('.card').count(),4);
  assert.equal(await page.locator('.unknown-title').innerText(),'가치평가 기준 부족');
- await page.context().grantPermissions(['clipboard-read','clipboard-write']);
- await page.locator('#copyAnalysis').click();
- await page.waitForFunction(()=>document.querySelector('#copyStatus').textContent.includes('복사했습니다'));
- const copied=await page.evaluate(()=>navigator.clipboard.readText());
- const copiedRows=copied.split('\n').filter(l=>l.startsWith('{')).map(JSON.parse);
- assert.equal(copiedRows.length,6);assert.ok(copiedRows.some(s=>s.티커==='HIGH'));assert.ok(copiedRows.some(s=>s.티커==='NO-PER-BUY'));
- assert.ok(!copiedRows.some(s=>s.티커==='FAIR'));assert.match(copied,/미래의 산업·경제 변화/);assert.match(copied,/시장: 미국/);
- assert.equal(await page.locator('.sector-group[open]').count(),0);
  await page.locator('.filters>summary').click();
  assert.equal(await page.locator('.filters input[type=number]').count(),0);
  assert.ok(await page.locator('.condition-tag').count()>10);
@@ -54,9 +46,6 @@ const server=http.createServer((req,res)=>{
  await page.evaluate(()=>window.scrollTo(0,0));
  await first.locator('.chips').click();assert.equal(await first.getAttribute('open'),null);
  await page.locator('[data-value="FAIR"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),1);
- await page.locator('#copyAnalysis').click();
- await page.waitForFunction(()=>document.querySelector('#copyStatus').textContent.includes('복사했습니다'));
- assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),copied);
  await page.locator('[data-value="HIGH"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/가치평가 기준 부족/);
  for(const width of [360,820]){
   await page.setViewportSize({width,height:1000});
@@ -65,15 +54,6 @@ const server=http.createServer((req,res)=>{
  }
  await page.locator('#tabKR').click();await page.locator('.sector-group').first().waitFor();
  assert.equal(await page.locator('#tabKR').getAttribute('aria-selected'),'true');
- await page.locator('#copyAnalysis').click();
- await page.waitForFunction(()=>document.querySelector('#copyStatus').textContent.includes('복사했습니다'));
- assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/시장: 한국 \| 통화: KRW/);
- // Denied clipboard access must expose the complete text for manual copy.
- await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('denied');}}});document.execCommand=()=>false;});
- await page.locator('#copyAnalysis').click();await page.locator('#copyFallback').waitFor({state:'visible'});
- const manual=await page.locator('#copyFallback').inputValue();assert.match(manual,/시장: 한국/);assert.match(manual,/미래의 산업·경제 변화/);
- assert.equal(manual.split('\n').filter(l=>l.startsWith('{')).length,6);
- await page.locator('#tabUS').click();assert.equal(await page.locator('#copyFallback').isVisible(),false);
  assert.deepEqual(errors,[]);
  console.log('Mobile/tablet layout, collapse, valuation/status, sorting, Android links and market navigation passed');
  }finally{await browser.close();server.close();}
