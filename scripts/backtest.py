@@ -24,9 +24,8 @@ BT = 'data/bt'
 START = '2013-01-01'
 COST = .001            # 편도 거래 비용
 # 전략: (이동평균 조건 사용, 목표가 트레일링 스탑 사용). 모두 최대 5종목, 매수 20% + ▲ 10%
-# 전략: (공시지연 사용, 매도 방식). 모두 이평선 조건 사용, 최대 5종목, 매수 20% + ▲ 10%, 손절선 항상 유지
-STRATEGIES = {(False, 'none'): '공시지연 X · 매도카드까지 보유', (False, 'ts2'): '공시지연 X · 2차목표 50% TS',
-              (True, 'none'): '공시지연 O · 매도카드까지 보유', (True, 'ts2'): '공시지연 O · 2차목표 50% TS'}
+# 전략: 매수 방식. 모두 이평선 O·공시지연 X·1차 50%/2차 25% TS, 최대 5종목, 매수 20% + ▲ 10%, 손절선 항상 유지
+STRATEGIES = {'limitA': '지정가(손절폭 5% 이내) · ▲ 시 시가 즉시매수', 'limitB': '지정가(손절폭 5% 이내)만'}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
@@ -177,11 +176,14 @@ class Book:
     ts=True: 목표가에 닿으면 해당 물량(1차 50%, 2차 25%)에 트레일링 스탑을 건다.
     ts=False: 목표가에 닿으면 그 가격에 바로 판다(1차 50%, 2차 남은 물량의 50%)."""
 
-    def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None):
+    def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0):
         # exits: 'ts12'(1차 50%·2차 25% TS) 'now12'(목표가 즉시매도) 'ts2'(2차 50% TS) 'none'(매도카드까지 보유)
+        # entry: 'open'(카드 다음 날 시가) 'limitA'(손절가까지 cap% 이내 지정가, ▲면 시가 즉시) 'limitB'(지정가만)
         self.exits = exits or ('ts12' if ts else 'now12')
+        self.entry, self.cap = entry, cap
         self.slots, self.cost, self.first, self.add = slots, cost, first, add
         self.cash, self.pos, self.orders, self.closed, self.curve, self.invested = 1.0, {}, [], [], [], []
+        self.pending, self.last_eq = {}, 1.0
 
     def _sell(self, t, q, px, k, why):
         p = self.pos[t]
@@ -211,10 +213,17 @@ class Book:
             p['events'].append('추가매수')
         else:
             m = o['metrics']
+            lv = o.get('levels') or {}   # 지정가 매수: 카드 손절가·목표가(가격). 없으면 매수가 기준 비율
+            if self.entry != 'open' and not lv:   # ▲ 즉시 매수: 매수가 -cap% 손절, 목표가는 카드 가격
+                lv = {'stop': px * (1 - self.cap / 100), 'tp1': o['card_close'] * (1 + m['target_1'] / 100),
+                      'tp2': o['card_close'] * (1 + m['target_2'] / 100), 'trail': -self.cap}
             self.pos[t] = {'sh': q, 'base': q, 'spent': spent, 'proceeds': 0.0, 'entry': px, 'last': px,
-                           'loss': m['expected_loss'], 't1': m['target_1'], 't2': m['target_2'],
+                           'stop': lv.get('stop', px * (1 + m['expected_loss'] / 100)),
+                           'tp1': lv.get('tp1', px * (1 + m['target_1'] / 100)),
+                           'tp2': lv.get('tp2', px * (1 + m['target_2'] / 100)),
+                           'trail': lv.get('trail', m['expected_loss']),
                            't1_done': False, 't2_done': False, 'added': o['added'], 'day': k, 'bull': False,
-                           'trails': [], 'events': ['매수+추가' if o['added'] else '매수']}
+                           'trails': [], 'events': [o.get('label') or ('매수+추가' if o['added'] else '매수')]}
 
     def morning(self, k, bar):
         """시가: 전날 신호 주문 체결(매도 먼저). 장중: 손절(항상), 목표가 처리(초강세 구간이면 쉰다)"""
@@ -225,19 +234,25 @@ class Book:
         for o in orders:
             if o['side'] == 'buy' and bar(o['t']):
                 self._buy(o, bar(o['t'])[0], k)
+        for t in list(self.pending):   # 지정가: 장중 저가가 지정가에 닿으면 그 가격(갭 하락이면 시가)
+            o, b = self.pending[t], bar(t)
+            if b and b[2] <= o['limit']:
+                del self.pending[t]
+                frac = self.first + (self.add if o['added'] else 0)
+                self._buy({**o, 'value': self.last_eq * frac}, min(b[0], o['limit']), k)
         for t in list(self.pos):
             p, b = self.pos[t], bar(t)
             if not b:
                 continue
             op, hi, lo, _ = b
-            stop = p['entry'] * (1 + p['loss'] / 100)   # 최초 매수가 기준 고정 손절선, 초강세에도 유지
+            stop = p['stop']   # 고정 손절선, 초강세에도 유지
             if lo <= stop:   # 같은 날 목표가와 겹치면 손절을 먼저 본다(보수적)
                 self._sell(t, float('inf'), min(op, stop), k, '손절')
                 continue
             if self.exits in PLANS:
                 alive = True
                 for tr in list(p['trails']):   # 걸어 둔 트레일링 스탑 (걸린 다음 날부터)
-                    level = tr['peak'] * (1 + p['loss'] / 100)
+                    level = tr['peak'] * (1 + p['trail'] / 100)
                     if not p['bull'] and k > tr['k'] and lo <= level:
                         p['trails'].remove(tr)
                         alive = self._sell(t, tr['q'], min(op, level), k, tr['name'] + ' TS매도')
@@ -248,7 +263,7 @@ class Book:
                 if not alive:
                     continue
                 for key, lvl, frac, name, need in PLANS[self.exits]:
-                    if not p[key] and (need is None or p[need]) and hi >= p['entry'] * (1 + p[lvl] / 100):
+                    if not p[key] and (need is None or p[need]) and hi >= p['tp' + lvl[1]]:
                         p[key] = True
                         p['trails'].append({'q': p['base'] * frac, 'peak': hi, 'k': k, 'name': name})
                         p['events'].append(name + '목표')
@@ -256,7 +271,7 @@ class Book:
                 for key, lvl, name in (('t1_done', 't1', '1차목표'), ('t2_done', 't2', '2차목표')):
                     if p[key] or (key == 't2_done' and not p['t1_done']):
                         continue
-                    tp = p['entry'] * (1 + p[lvl] / 100)
+                    tp = p['tp' + lvl[1]]
                     if hi >= tp:
                         p[key] = True
                         if not self._sell(t, p['sh'] * .5, max(op, tp), k, name):
@@ -272,6 +287,7 @@ class Book:
             p['bull'] = bool(card and card['hunbot'].get('super_bull'))
         value = sum(p['sh'] * p['last'] for p in self.pos.values())
         eq = self.cash + value
+        self.last_eq = eq
         self.curve.append(eq)
         self.invested.append(value / eq if eq else 0)
         signal = lambda t: bool(cards.get(t) and not cards[t]['hunbot'].get('sc')
@@ -283,13 +299,36 @@ class Book:
             if (t not in sells and not p['added'] and not p['t1_done']
                     and cards.get(t, {}).get('state') == 'BUY' and signal(t)):
                 orders.append({'side': 'buy', 't': t, 'value': eq * self.add})
-        free = self.slots - (len(self.pos) - len(sells))
-        new = sorted((cards[t] for t in newly if t not in self.pos and cards[t]['metrics']['expected_loss'] is not None),
+        # 걸어 둔 지정가: 매수 카드에서 빠지면 취소. A는 ▲가 뜨면 다음 날 시가에 30% 매수로 바꾼다
+        for t in list(self.pending):
+            if cards.get(t, {}).get('state') != 'BUY':
+                del self.pending[t]
+            elif self.entry == 'limitA' and signal(t):
+                o = self.pending.pop(t)
+                orders.append({**o, 'side': 'buy', 'value': eq * (self.first + self.add), 'added': True,
+                               'levels': None, 'label': '▲시가매수'})
+            else:
+                self.pending[t]['added'] = signal(t)
+        waiting = {o['t'] for o in orders if o['side'] == 'buy'} | set(self.pending)
+        free = self.slots - (len(self.pos) - len(sells)) - len(waiting - set(self.pos))
+        new = sorted((cards[t] for t in newly if t not in self.pos and t not in waiting
+                      and cards[t]['metrics']['expected_loss'] is not None),
                      key=lambda s: (abs(s['metrics']['expected_loss']), -s['metrics']['target_1']))
         for s in new[:max(free, 0)]:
-            added = signal(s['code'])
-            orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
-                           'added': added, 'metrics': s['metrics']})
+            added, m, c = signal(s['code']), s['metrics'], s.get('close')
+            if self.entry == 'open':
+                orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
+                               'added': added, 'metrics': m})
+            elif self.entry == 'limitA' and added:
+                orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + self.add), 'added': True,
+                               'metrics': m, 'card_close': c, 'label': '▲시가매수'})
+            else:   # 카드 손절가까지 cap% 이내가 되는 가격에 지정가
+                stop = c * (1 + m['expected_loss'] / 100)
+                self.pending[s['code']] = {
+                    't': s['code'], 'limit': stop / (1 - self.cap / 100), 'added': added, 'metrics': m,
+                    'card_close': c, 'label': '지정가매수',
+                    'levels': {'stop': stop, 'tp1': c * (1 + m['target_1'] / 100), 'tp2': c * (1 + m['target_2'] / 100),
+                               'trail': max(m['expected_loss'], -self.cap)}}
         self.orders = orders
 
 
@@ -404,11 +443,11 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>자산 곡선 (로그 축)</h2><div class="box"><div class="legend">{legend}</div><svg viewBox="0 0 {W} {H}">{"".join(paths)}</svg></div>
 <h2>연도별 수익률</h2><div class="box"><table>{ytable}</table></div>
 <h2>규칙과 한계</h2><ul>
-<li>공통: 최대 5종목. 매수 카드에 새로 오르면 20%, 매수 카드 상태에서 훈봇 ▲ 신호가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순. 보유 종목이 꽉 차면 건너뜀.</li>
-<li>손절: 최초 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음(초강세 구간 포함). 매도 카드가 뜨면 전량.</li>
-<li>매도카드까지 보유: 손절선과 매도 카드로만 매도. 2차목표 50% TS: 2차 목표가에 닿으면 물량의 50%에 트레일링 스탑(최고가 대비 예상 손실률)을 걸고, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
-<li>이평선 조건 사용. 공시지연 O: 최신 재무가 시장에서 가장 많은 종목이 도달한 분기보다 2분기 이상 늦으면 매수 제외·매도 사유.</li>
-<li>카드 신호는 다음 날 시가에 체결, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
+<li>공통: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순. 걸어 둔 지정가도 보유 종목 수에 포함.</li>
+<li>매수: 카드에 오른 날은 사지 않고, 그날 종가 기준 카드 손절가까지 5% 이내가 되는 가격(손절가÷0.95)에 지정가. 다음 날부터 장중 저가가 닿으면 그 가격(갭 하락이면 시가)에 20%, 직전 종가 기준 훈봇 ▲면 30%. 오르기만 하거나 매수 카드에서 빠지면 사지 않음.</li>
+<li>▲ 시 시가 즉시매수: 지정가 대기 중 훈봇 ▲가 뜨면 다음 날 시가에 30% 매수, 손절은 매수가 −5%. 지정가로 20% 산 뒤 ▲가 뜨면 다음 날 시가에 10% 추가(손절가 유지). 지정가만: ▲여도 지정가에서만 매수.</li>
+<li>손절: 카드 손절가(▲ 즉시매수는 매수가 −5%)에 항상 걸려 있음(초강세 포함). 목표가는 카드 종가 기준 가격. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률, 최대 5%)으로 매도하고, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
+<li>목표가·손절·지정가는 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결, 매도 카드는 다음 날 시가. 같은 날 손절과 목표가가 겹치면 손절로 처리, 지정가 체결 당일 저가가 손절가 이하면 그날 손절.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''
     open('docs/backtest.html', 'w', encoding='utf-8').write(html)
@@ -438,8 +477,8 @@ def main():
     index = {co['t']: ci for ci, co in enumerate(cos)}
     cur, rec, started = [None] * len(cos), set(), False
     quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
-    histories = {stale: {} for stale in (False, True)}
-    books = {key: Book(exits=key[1]) for key in STRATEGIES}
+    histories = {False: {}}
+    books = {key: Book(exits='ts12', entry=key) for key in STRATEGIES}
     cr.USE_MA = True
     for k in range(len(CAL)):
         for ci, snap in events.get(k, ()):
@@ -470,8 +509,8 @@ def main():
                     last = (s.get('history') or {}).get('transitions') or [{}]
                     if s['state'] == 'BUY' and last[-1].get('to') == 'BUY' and last[-1].get('date') == day:
                         newly.append(s['code'])
-            for exits in ('none', 'ts2'):
-                books[(stale, exits)].evening(k, bar, cards, newly)
+            for b in books.values():
+                b.evening(k, bar, cards, newly)
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
     cr.USE_STALE = False

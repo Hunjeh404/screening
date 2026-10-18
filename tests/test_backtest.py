@@ -36,8 +36,8 @@ class FeatureTest(unittest.TestCase):
         self.assertEqual(bt.quarter_closes(d, c, 100)['2024Q2'], c[100])
 
 
-def card(t, state='BUY', loss=-5, t1=10, t2=20, age=None, bull=False, sc=False):
-    return {'code': t, 'state': state, 'metrics': {'expected_loss': loss, 'target_1': t1, 'target_2': t2},
+def card(t, state='BUY', loss=-5, t1=10, t2=20, age=None, bull=False, sc=False, close=None):
+    return {'code': t, 'state': state, 'close': close, 'metrics': {'expected_loss': loss, 'target_1': t1, 'target_2': t2},
             'hunbot': {'lc_age': age, 'super_bull': bull, 'sc': sc}}
 
 
@@ -125,6 +125,45 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(b.pos['C']['spent'], .2)
         self.assertAlmostEqual(b.pos['C']['sh'], .2 / (10 * 1.001))
         self.assertEqual(b.orders, [])                                      # 꽉 차서 더 사지 않음
+
+    def test_limit_entry(self):
+        # 카드 종가 100, 손절 -8% -> 손절가 92, 지정가 92/0.95=96.84. 목표가는 카드 종가 기준 110/120
+        L = 92 / .95
+        C = lambda **kw: {'A': card('A', loss=-8, close=100, **kw)}
+        for entry in ('limitA', 'limitB'):
+            b = bt.Book(5, cost=0, entry=entry)
+            self.run_days(b, [({}, C(), ['A']),
+                              ({'A': (101, 103, 99, 102)}, C(), []),        # 지정가 미도달 -> 대기
+                              ({'A': (99, 100, 95, 97)}, C(), [])])         # 장중 도달 -> 지정가 체결 20%
+            p = b.pos['A']
+            self.assertAlmostEqual(p['entry'], L)
+            self.assertAlmostEqual(p['spent'], .2)
+            self.assertAlmostEqual(p['stop'], 92)
+            self.assertAlmostEqual(p['tp1'], 110)
+            self.assertAlmostEqual(p['trail'], -5)
+        b = bt.Book(5, cost=0, entry='limitB')                              # 갭 하락이면 시가 체결
+        self.run_days(b, [({}, C(), ['A']), ({'A': (95, 96, 94, 95)}, C(), [])])
+        self.assertAlmostEqual(b.pos['A']['entry'], 95)
+        b = bt.Book(5, cost=0, entry='limitB')                              # 매수 카드에서 빠지면 취소
+        self.run_days(b, [({}, C(), ['A']), ({'A': (101, 103, 99, 102)}, {'A': card('A', state='HOLD')}, []),
+                          ({'A': (95, 96, 90, 95)}, {}, [])])
+        self.assertEqual((b.pos, b.pending), ({}, {}))
+
+    def test_limit_with_signal(self):
+        C = lambda **kw: {'A': card('A', loss=-8, close=100, **kw)}
+        b = bt.Book(5, cost=0, entry='limitA')                              # A: ▲면 다음 날 시가 30%, 손절 -5%
+        self.run_days(b, [({}, C(), ['A']), ({'A': (101, 103, 99, 102)}, C(age=0), []),
+                          ({'A': (102, 104, 101, 103)}, C(), [])])
+        p = b.pos['A']
+        self.assertEqual((p['entry'], p['events'][0]), (102, '▲시가매수'))
+        self.assertAlmostEqual(p['spent'], .3)
+        self.assertAlmostEqual(p['stop'], 102 * .95)
+        self.assertAlmostEqual(p['tp1'], 110)
+        b = bt.Book(5, cost=0, entry='limitB')                              # B: ▲여도 지정가까지 기다려 30%
+        self.run_days(b, [({}, C(), ['A']), ({'A': (101, 103, 99, 102)}, C(age=0), []),
+                          ({'A': (102, 104, 101, 103)}, C(age=1), []), ({'A': (99, 100, 96, 97)}, C(), [])])
+        self.assertAlmostEqual(b.pos['A']['spent'], .3)
+        self.assertAlmostEqual(b.pos['A']['entry'], 92 / .95)
 
 
 if __name__ == '__main__':
