@@ -10,6 +10,8 @@ SCHEMA_VERSION = 2
 FSCORE_NEED = {9: 7, 6: 5}
 # 이동평균 조건(매수: 종가 ≥ 120·200일선 중 하나, 매도: 추세이탈) 사용 여부. 백테스트 비교용
 USE_MA = True
+# 공시지연(시장 최빈 분기보다 2분기 이상 늦음) 사용 여부. 앱은 쓰지 않음, 백테스트 비교용
+USE_STALE = False
 # 매도 상태로 보여 주는 갱신일 수. 이를 넘기면 이력까지 지운다
 SELL_KEEP_DAYS = 5
 # 최근 4분기 영업이익의 1년 전 대비 허용 감소폭
@@ -110,7 +112,7 @@ def fscore_ok(s):
 
 def buy_eligible(s):
     c, a, b = (s.get(k) for k in ('close', 'ma120', 'ma200'))
-    if not all(positive(x) for x in (c, a, b)) or not s.get('record'):
+    if not all(positive(x) for x in (c, a, b)) or not s.get('record') or (USE_STALE and s.get('stale')):
         return False
     if not ((not USE_MA or c >= a or c >= b) and s.get('vol_down')) or s.get('obv_signal') == '이탈':
         return False
@@ -141,6 +143,8 @@ def sell_reasons(s, entry=None):
         reasons.append('투매')
     if peak_out(s):
         reasons.append('피크아웃')
+    if USE_STALE and s.get('stale'):
+        reasons.append('공시지연')
     roe, debt, op = (s.get(k) for k in ('roe3', 'debt', 'latest_op'))
     original_loss = bool((entry or {}).get('entry_op_loss'))
     turnaround = bool((entry or {}).get('entry_turnaround')) or loss_turnaround(s)

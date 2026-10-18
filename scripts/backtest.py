@@ -9,6 +9,7 @@ import math
 import os
 import sys
 import types
+from collections import Counter
 from multiprocessing import Pool
 
 import numpy as np
@@ -23,8 +24,11 @@ BT = 'data/bt'
 START = '2013-01-01'
 COST = .001            # 편도 거래 비용
 # 전략: (이동평균 조건 사용, 목표가 트레일링 스탑 사용). 모두 최대 5종목, 매수 20% + ▲ 10%
-STRATEGIES = {(True, True): '이평선 O · 목표가 TS', (True, False): '이평선 O · 목표가 즉시매도',
-              (False, True): '이평선 X · 목표가 TS', (False, False): '이평선 X · 목표가 즉시매도'}
+# 전략: (공시지연 사용, 매도 방식). 모두 이평선 조건 사용, 최대 5종목, 매수 20% + ▲ 10%, 손절선 항상 유지
+STRATEGIES = {(False, 'none'): '공시지연 X · 매도카드까지 보유', (False, 'ts2'): '공시지연 X · 2차목표 50% TS',
+              (True, 'none'): '공시지연 O · 매도카드까지 보유', (True, 'ts2'): '공시지연 O · 2차목표 50% TS'}
+PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
+         'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
 EPOCH = dt.date(1970, 1, 1)
 day_int = lambda s: (dt.date.fromisoformat(s) - EPOCH).days
@@ -173,8 +177,10 @@ class Book:
     ts=True: 목표가에 닿으면 해당 물량(1차 50%, 2차 25%)에 트레일링 스탑을 건다.
     ts=False: 목표가에 닿으면 그 가격에 바로 판다(1차 50%, 2차 남은 물량의 50%)."""
 
-    def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1):
-        self.slots, self.ts, self.cost, self.first, self.add = slots, ts, cost, first, add
+    def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None):
+        # exits: 'ts12'(1차 50%·2차 25% TS) 'now12'(목표가 즉시매도) 'ts2'(2차 50% TS) 'none'(매도카드까지 보유)
+        self.exits = exits or ('ts12' if ts else 'now12')
+        self.slots, self.cost, self.first, self.add = slots, cost, first, add
         self.cash, self.pos, self.orders, self.closed, self.curve, self.invested = 1.0, {}, [], [], [], []
 
     def _sell(self, t, q, px, k, why):
@@ -228,7 +234,7 @@ class Book:
             if lo <= stop:   # 같은 날 목표가와 겹치면 손절을 먼저 본다(보수적)
                 self._sell(t, float('inf'), min(op, stop), k, '손절')
                 continue
-            if self.ts:
+            if self.exits in PLANS:
                 alive = True
                 for tr in list(p['trails']):   # 걸어 둔 트레일링 스탑 (걸린 다음 날부터)
                     level = tr['peak'] * (1 + p['loss'] / 100)
@@ -241,8 +247,8 @@ class Book:
                         tr['peak'] = max(tr['peak'], hi)
                 if not alive:
                     continue
-                for key, lvl, frac, name in (('t1_done', 't1', .5, '1차'), ('t2_done', 't2', .25, '2차')):
-                    if not p[key] and (key == 't1_done' or p['t1_done']) and hi >= p['entry'] * (1 + p[lvl] / 100):
+                for key, lvl, frac, name, need in PLANS[self.exits]:
+                    if not p[key] and (need is None or p[need]) and hi >= p['entry'] * (1 + p[lvl] / 100):
                         p[key] = True
                         p['trails'].append({'q': p['base'] * frac, 'peak': hi, 'k': k, 'name': name})
                         p['events'].append(name + '목표')
@@ -398,10 +404,10 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>자산 곡선 (로그 축)</h2><div class="box"><div class="legend">{legend}</div><svg viewBox="0 0 {W} {H}">{"".join(paths)}</svg></div>
 <h2>연도별 수익률</h2><div class="box"><table>{ytable}</table></div>
 <h2>규칙과 한계</h2><ul>
-<li>공통: 최대 5종목. 매수 카드에 새로 오르면 20%, 매수 카드 상태에서 훈봇 ▲ 신호가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순. 보유 종목이 꽉 차면 건너뜀. 공시 지연은 판정에 쓰지 않음.</li>
+<li>공통: 최대 5종목. 매수 카드에 새로 오르면 20%, 매수 카드 상태에서 훈봇 ▲ 신호가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순. 보유 종목이 꽉 차면 건너뜀.</li>
 <li>손절: 최초 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음(초강세 구간 포함). 매도 카드가 뜨면 전량.</li>
-<li>목표가 TS: 1차 목표가에 닿으면 물량의 50%, 2차 목표가에 닿으면 25%에 트레일링 스탑(최고가 대비 예상 손실률)을 걸고, 남은 25%는 매도 카드로 매도. 목표가 즉시매도: 목표가에 닿는 순간 1차 50%, 2차 남은 물량의 50% 매도. 초강세 구간에서는 목표가 매도·트레일링 스탑을 쉼.</li>
-<li>이평선 X: 매수의 '종가 ≥ 120·200일선' 조건과 매도의 추세이탈을 모두 뺀 버전.</li>
+<li>매도카드까지 보유: 손절선과 매도 카드로만 매도. 2차목표 50% TS: 2차 목표가에 닿으면 물량의 50%에 트레일링 스탑(최고가 대비 예상 손실률)을 걸고, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
+<li>이평선 조건 사용. 공시지연 O: 최신 재무가 시장에서 가장 많은 종목이 도달한 분기보다 2분기 이상 늦으면 매수 제외·매도 사유.</li>
 <li>카드 신호는 다음 날 시가에 체결, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''
@@ -431,13 +437,19 @@ def main():
             events.setdefault(snap[0], []).append((ci, snap))
     index = {co['t']: ci for ci, co in enumerate(cos)}
     cur, rec, started = [None] * len(cos), set(), False
-    histories = {ma: {} for ma in (True, False)}
-    books = {key: Book(ts=key[1]) for key in STRATEGIES}
+    quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
+    histories = {stale: {} for stale in (False, True)}
+    books = {key: Book(exits=key[1]) for key in STRATEGIES}
+    cr.USE_MA = True
     for k in range(len(CAL)):
         for ci, snap in events.get(k, ()):
+            if cur[ci]:
+                quarters[cur[ci][1]['latest_q']] -= 1
             cur[ci] = snap
+            quarters[snap[1]['latest_q']] += 1
             started = True
             (rec.add if snap[1]['rec_base'] else rec.discard)(ci)
+        fresh = shift_label(quarters.most_common(1)[0][0], -1) if started else None
         day = day_str(CAL[k])
         bar = lambda t, k=k: (lambda A: (float(A['o'][k]), float(A['h'][k]), float(A['l'][k]), float(A['c'][k]))
                               if np.isfinite(A['c'][k]) and np.isfinite(A['o'][k]) else None)(cos[index[t]]['a'])
@@ -445,8 +457,10 @@ def main():
             b.morning(k, bar)
         held = {index[key[3:]] for h in histories.values() for key in h.get('tickers', {}) if key[3:] in index}
         base = [s for ci in rec | held if started and cur[ci] and (s := build(cos[ci], cur[ci], k))]
-        for ma, history in histories.items():   # 이동평균 조건 켬/끔은 카드 상태가 달라지므로 따로 추적
-            cr.USE_MA = ma
+        for s in base:
+            s['stale'] = s['latest_q'] < fresh
+        for stale, history in histories.items():   # 공시지연 켬/끔은 카드 상태가 달라지므로 따로 추적
+            cr.USE_STALE = stale
             stocks = [dict(s) for s in base]
             cr.update_history(stocks, history, 'us', f'{day} 08:00')
             cards, newly = {}, []
@@ -456,11 +470,11 @@ def main():
                     last = (s.get('history') or {}).get('transitions') or [{}]
                     if s['state'] == 'BUY' and last[-1].get('to') == 'BUY' and last[-1].get('date') == day:
                         newly.append(s['code'])
-            for ts in (True, False):
-                books[(ma, ts)].evening(k, bar, cards, newly)
+            for exits in ('none', 'ts2'):
+                books[(stale, exits)].evening(k, bar, cards, newly)
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
-    cr.USE_MA = True
+    cr.USE_STALE = False
     for line in report({STRATEGIES[key]: b for key, b in books.items()}, spy, CAL):
         print('::warning title=backtest::' + line)
 

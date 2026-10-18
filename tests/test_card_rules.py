@@ -129,6 +129,14 @@ class RuleTest(unittest.TestCase):
     def test_no_disclosure_delay_rule(self):
         self.assertTrue(buy_eligible(stock(stale=True)))
         self.assertNotIn('공시지연',sell_reasons(stock(stale=True)))
+    def test_stale_switch(self):
+        import card_rules
+        card_rules.USE_STALE=True
+        try:
+            self.assertFalse(buy_eligible(stock(stale=True)));self.assertIn('공시지연',sell_reasons(stock(stale=True)))
+            self.assertTrue(buy_eligible(stock(stale=False)))
+        finally:
+            card_rules.USE_STALE=False
     def test_ma_switch(self):
         import card_rules
         s=stock(close=70)

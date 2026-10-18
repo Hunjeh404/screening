@@ -76,6 +76,22 @@ class BookTest(unittest.TestCase):
         sh = .2 / 100 + .1 / 100
         self.assertAlmostEqual(b.cash, 1 - .3 + sh * .5 * 110 + sh * .25 * 120 + sh * .25 * 95)
 
+    def test_hold_until_sell_card(self):
+        b = bt.Book(5, cost=0, exits='none')
+        days = self.scenario()[:5] + [({'A': (119, 119, 117, 118)}, {'A': card('A', state='SELL')}, []),
+                                      ({'A': (116, 117, 115, 116)}, {}, [])]
+        self.run_days(b, days)
+        self.assertEqual(b.closed[0]['events'], '매수>추가매수>매도카드()')
+        self.assertAlmostEqual(b.cash, 1 - .3 + (.2 / 100 + .1 / 100) * 116)
+
+    def test_second_target_half_trailing(self):
+        b = bt.Book(5, cost=0, exits='ts2')
+        self.run_days(b, self.scenario())
+        # 1차 목표(110)에서는 아무것도 안 하고, 2차 목표(120) 도달 시 50%에 TS: 최고가 125 -> 118.75
+        self.assertEqual(b.closed[0]['events'], '매수>추가매수>2차목표>2차 TS매도>손절')
+        sh = .2 / 100 + .1 / 100
+        self.assertAlmostEqual(b.cash, 1 - .3 + sh * .5 * 118.75 + sh * .5 * 95)
+
     def test_stop_works_even_in_super_bull(self):
         b = bt.Book(5, cost=0)
         self.run_days(b, [({}, {'A': card('A', bull=True)}, ['A']),
