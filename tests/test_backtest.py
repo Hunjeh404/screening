@@ -73,7 +73,7 @@ class BookTest(unittest.TestCase):
             ({'A': (100, 100, 100, 100)}, {'A': card('A', state='SELL')}, []),
             ({'A': (90, 95, 90, 92)}, {}, []),
         ])
-        self.assertEqual(b.closed[0]['exit'], '매도카드')
+        self.assertEqual(b.closed[0]['exit'], '매도카드()')
         self.assertAlmostEqual(b.cash, 1 - .2 + .2 / 100 * 90)
         b = bt.Book(5, cost=0)
         self.run_days(b, [({}, {'A': card('A', age=0)}, ['A']),

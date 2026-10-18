@@ -204,7 +204,7 @@ class Book:
         orders, self.orders = self.orders, []
         for o in orders:
             if o['side'] == 'sell' and o['t'] in self.pos and bar(o['t']):
-                self._sell(o['t'], 1, bar(o['t'])[0], k, '매도카드')
+                self._sell(o['t'], 1, bar(o['t'])[0], k, o.get('why', '매도카드'))
         for o in orders:
             if o['side'] == 'buy' and bar(o['t']):
                 self._buy(o, bar(o['t'])[0], k)
@@ -241,7 +241,7 @@ class Book:
                                 and cards[t]['hunbot'].get('lc_age') in (0, 1, 2))
         w = eq / self.slots
         sells = [t for t in self.pos if cards.get(t, {}).get('state') == 'SELL']
-        orders = [{'side': 'sell', 't': t} for t in sells]
+        orders = [{'side': 'sell', 't': t, 'why': '매도카드(' + ','.join(cards[t].get('state_reasons') or []) + ')'} for t in sells]
         for t, p in self.pos.items():
             if (t not in sells and p['filled'] < 1 and not p['t1_done']
                     and cards.get(t, {}).get('state') == 'BUY' and signal(t)):
