@@ -13,6 +13,11 @@ const hasValuationBasis = s => s.fin
   ? Number.isFinite(s.pbr) && s.pbr > 0
   : Number.isFinite(s.per) && s.per > 0 && Number.isFinite(s.per_med5) && s.per_med5 > 0;
 const tabStocks = (stocks, tab) => stocks.filter(s => s.state === TAB_STATE[tab]);
+function isNewState(s, generated = DATA?.meta?.generated) {
+  const latest = s.history?.transitions?.at(-1);
+  return Boolean(!s.data_missing && STATES[s.state] && generated && latest &&
+    latest.to === s.state && latest.date === generated.slice(0,10));
+}
 const price = v => v == null ? '–' : (MKT === 'kr' ? num(v,0)+'원' : '$'+num(v,2));
 const mil = v => v == null ? '–' : MKT === 'kr' ? num(v/1e8,0)+'억' : '$'+num(v/1e6,0)+'M';
 const bil = v => v == null ? '–' : MKT === 'kr' ? (v >= 1e12 ? num(v/1e12)+'조' : num(v/1e8,0)+'억') : '$'+num(v/1e9)+'B';
@@ -103,8 +108,9 @@ function card(s) {
   const signal=!s.data_missing && !h.sc && Number.isInteger(h.lc_age) && h.lc_age>=0 && h.lc_age<3
     ? `<span class="buy-signal">▲(D+${h.lc_age})</span> ` : '';
   const maQuote=(label,value)=>`<span class="quote-item">${label} <span class="${signClass(Number.isFinite(s.close)&&Number.isFinite(value)?s.close-value:null)}">${price(value)}</span></span>`;
+  const newMark=isNewState(s)?'<span class="new-marker" aria-label="신규" title="최신 갱신일에 이 분류로 신규 편입">·</span>':'';
   return `<details class="card${s.obv_signal==='매집'?' bull':''}" data-code="${esc(s.code)}">
-    <summary><div class="top"><a class="name" href="${href}" aria-label="${esc(s.name)} TradingView 열기">${esc(s.name)}</a><div class="ticker-actions"><a class="ticker" href="${href}">${signal}${esc(s.code)}</a><button type="button" class="share-card" aria-label="${esc(s.code)} 카드 JPG 저장" title="카드 JPG 저장" data-html2canvas-ignore><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.7 7.6-4.4m-7.6 7 7.6 4.4"/></svg></button></div></div><div class="chips">${chips.join('')}</div>
+    <summary><div class="top"><a class="name" href="${href}" aria-label="${esc(s.name)}${newMark?' 신규':''} TradingView 열기"><span class="name-text">${esc(s.name)}</span>${newMark}</a><div class="ticker-actions"><a class="ticker" href="${href}">${signal}${esc(s.code)}</a><button type="button" class="share-card" aria-label="${esc(s.code)} 카드 JPG 저장" title="카드 JPG 저장" data-html2canvas-ignore><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.7 7.6-4.4m-7.6 7 7.6 4.4"/></svg></button></div></div><div class="chips">${chips.join('')}</div>
     <div class="distances"><span class="quote-item">현재가 ${price(s.close)}<span class="${signClass(s.change_pct)}">(${signed(s.change_pct)})</span></span> · ${maQuote('120일선',s.ma120)} · ${maQuote('200일선',s.ma200)}</div></summary>
     <div class="detail"><div class="grid">
       ${metric('ROE 3년',unit(s.roe3,'%'))}${metric(s.fin?'PBR':'부채비율',s.fin?unit(s.pbr,'배',2):unit(s.debt,'%',1))}
@@ -183,4 +189,4 @@ if(typeof document!=='undefined'){
     VALUE=b.dataset.value;document.querySelectorAll('[data-value]').forEach(x=>{const on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-selected',String(on));});render();
   }));load('us');
 }
-if(typeof module!=='undefined')module.exports={tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons};
+if(typeof module!=='undefined')module.exports={tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons,isNewState};

@@ -26,3 +26,5 @@
 #tag-reasons{padding-left:19px;margin:12px 0 2px;font-size:13px;line-height:1.8}#tag-reasons li+li{margin-top:5px}
 .export-stage{position:fixed;left:-10000px;top:0;padding:2px;background:var(--bg);pointer-events:none}
 .export-stage .card{margin:0}.export-stage .name{white-space:normal;overflow:visible;text-overflow:clip}.export-stage .detail{display:block}
+.name{display:inline-flex;align-items:baseline;gap:4px}.name-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.new-marker{flex-shrink:0;color:var(--bull);font-weight:700}
+.export-stage .name-text{white-space:normal;overflow:visible;text-overflow:clip}
