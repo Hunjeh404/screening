@@ -186,7 +186,8 @@ def price_metrics(dates, closes, vols=None):
         qe[f'{dd.year}Q{(dd.month - 1) // 3 + 1}'] = c
     keep = sorted(qe)[-25:]
     return {
-        'close': closes[-1], 'ma120': ma(120), 'ma240': ma(240),
+        'close': closes[-1], 'ma120': ma(120), 'ma200': ma(200), 'ma20': ma(20),
+        'change_pct': (closes[-1] / closes[-2] - 1) * 100, 'price_date': dates[-1].isoformat(),
         'vol20': sd(20), 'vol60': sd(60), 'high52': max(closes[-250:]),
         'qe': {k: qe[k] for k in keep},
         'wk': weekly(dates, closes, vols) if vols else None,
@@ -194,7 +195,7 @@ def price_metrics(dates, closes, vols=None):
 
 
 def analyze(ext, px, sh):
-    """한 종목의 지표 계산. 필터 판정은 웹앱에서 한다.
+    """한 종목의 지표 계산. 필터·상태 판정은 card_rules에서 한다.
     sh: shares_out() 결과. 주식 수가 없거나 오래됐거나, 계산 결과가 불가능한 값이면
     (공시 단위와 거래 주식 종류가 다른 경우 등) 밸류에이션 지표를 비운다."""
     qv = ext['q']
@@ -239,23 +240,22 @@ def analyze(ext, px, sh):
     hist = [] if share_warn else [px['qe'][l] * shares / n for l, n in list(zip(seq, ni_t))[-20:]
                                   if n and n > 0 and px['qe'].get(l)]
     per_med = statistics.median(hist) if len(hist) >= 8 else None
-    graham = None
-    if marcap and ni_now and ni_now > 0 and eq and eq > 0:
-        g = (22.5 * (ni_now / shares) * (eq / shares)) ** 0.5
-        graham = (g - px['close']) / g * 100
     if (per_now is not None and per_now < 1) or (pbr is not None and pbr < 0.05):
         share_warn = True
-        marcap = per_now = pbr = per_med = graham = None
+        marcap = per_now = pbr = per_med = None
     c = px['close']
 
     r = lambda v, k=1: None if v is None else round(v, k)
     tail = seq[-12:]
     return {
+        **{k: px.get(k) for k in ('close', 'ma20', 'ma120', 'ma200', 'vol20', 'vol60', 'change_pct', 'price_date')},
+        'ni_ttm': ni_now, 'rev_ttm_value': rev_t[-1], 'prev_rev_ttm': rev_t[-2],
+        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'latest_op': op_q[-1],
         'latest_q': seq[-1], **rec, 'marcap': None if marcap is None else round(marcap), 'share_warn': share_warn,
         'roe3': r(roe3), 'debt': r(debt), 'profit_years': profit_years,
-        'per': r(per_now), 'per_med5': r(per_med), 'pbr': r(pbr, 2), 'graham_disc': r(graham),
-        'above120': px['ma120'] is not None and c > px['ma120'],
-        'above240': px['ma240'] is not None and c > px['ma240'],
+        'per': r(per_now), 'per_med5': r(per_med), 'pbr': r(pbr, 2),
+        'above120': px['ma120'] is not None and c >= px['ma120'],
+        'above200': px.get('ma200') is not None and c >= px['ma200'],
         'vol_down': px['vol20'] is not None and px['vol60'] is not None and px['vol20'] < px['vol60'],
         'dd52': r((c / px['high52'] - 1) * 100),
         'q': {'labels': tail, 'rev': [qv.get(l, {}).get('rev') for l in tail],

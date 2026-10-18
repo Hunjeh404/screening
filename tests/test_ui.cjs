@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const {tradingViewUrl,esc,card,sectors}=require('../docs/app.js');
+assert.match(tradingViewUrl('ABC','Android'),/^intent:\/\//);
+assert.ok(tradingViewUrl('ABC','Android').includes('package=com.tradingview.tradingviewapp;'));
+assert.ok(tradingViewUrl('ABC','Android').includes('S.browser_fallback_url=https%3A%2F%2F'));
+assert.equal(tradingViewUrl('BRK.B','iPhone'),'https://www.tradingview.com/chart/?symbol=BRK.B');
+assert.equal(tradingViewUrl('005930','Windows'),'https://www.tradingview.com/chart/?symbol=005930');
+assert.equal(esc('<script>'), '&lt;script&gt;');
+const s={state:'BUY',code:'ABC',name:'A<script>',market:'NYSE American',latest_q:'2026Q2',valuation:'LOW'};
+const html=card(s);assert.ok(!html.includes('<script>'));assert.ok(!html.includes('details class="card" open'));
+assert.ok(html.includes('예상 손실률'));assert.ok(html.includes('2차 수익률'));
+const groups=sectors([{...s,sector:'A',marcap:2},{...s,code:'DEF',sector:'A',marcap:4},{...s,sector:'Z',marcap:5}]);
+assert.ok(groups.indexOf('>A<')<groups.indexOf('>Z<'));assert.ok(groups.indexOf('DEF')<groups.indexOf('ABC'));
+console.log('UI link / escaping / collapse / sorting checks passed');

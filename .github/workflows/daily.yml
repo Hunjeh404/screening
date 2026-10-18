@@ -1,11 +1,32 @@
 name: daily-screen
 on:
   schedule:
-    - cron: '47 22 * * 1-5'   # 화~토 07:47 (한국시간), 미국 장 마감 후 (한국은 전날 종가 기준)
+    - cron: '47 22 * * 1-5'
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/daily.yml'
 permissions:
   contents: write
+concurrency:
+  group: daily-screen
+  cancel-in-progress: false
 jobs:
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --package-lock=false playwright
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/browser.cjs
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 150
@@ -14,33 +35,52 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Test rules and history
+        run: |
+          python -m unittest discover -s tests -v
+          node tests/test_ui.cjs
       - run: pip install -r requirements.txt
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: data/cache
           key: cache-${{ github.run_id }}
           restore-keys: cache-
-      - run: |
-          set -o pipefail
-          python scripts/fetch.py 2>&1 | tee fetch.log || { echo "::error title=fetch.py::$(tail -c 1500 fetch.log | tr '\n' ' ')"; exit 1; }
-        env:
-          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
-      - run: python scripts/screen.py
-      - run: python scripts/sectors.py
-      # 한국: DART 키가 없거나 실패해도 미국 결과는 올라가도록 따로 둔다
-      - id: kr
+      - name: US data and history
+        id: us
         continue-on-error: true
+        timeout-minutes: 35
         run: |
           set -o pipefail
-          python scripts/fetch_kr.py 2>&1 | tee fetch_kr.log || { echo "::error title=fetch_kr.py::$(tail -c 1500 fetch_kr.log | tr '\n' ' ')"; exit 1; }
+          python -u scripts/fetch.py 2>&1 | tee fetch.log
+          python scripts/screen.py
+          python scripts/sectors.py
+          bash scripts/publish_data.sh us
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      - name: Korea data and history
+        id: kr
+        continue-on-error: true
+        timeout-minutes: 100
+        run: |
+          set -o pipefail
+          python -u scripts/fetch_kr.py 2>&1 | tee fetch_kr.log
           python scripts/screen_kr.py
           python scripts/sectors.py data/cache/kr docs/data_kr.json
+          bash scripts/publish_data.sh kr
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-      - run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@users.noreply.github.com"
-          git add docs/data.json
-          if [ -f docs/data_kr.json ]; then git add docs/data_kr.json; fi
-          git diff --cached --quiet || git commit -m "data: $(date +%F)"
-          git push
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/cache
+          key: cache-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Report incomplete markets
+        if: always()
+        env:
+          US_RESULT: ${{ steps.us.outcome }}
+          KR_RESULT: ${{ steps.kr.outcome }}
+        run: |
+          if [ "$US_RESULT" != success ] || [ "$KR_RESULT" != success ]; then
+            echo "::error::Market refresh incomplete: US=$US_RESULT KR=$KR_RESULT. Previously published data is preserved."
+            exit 1
+          fi

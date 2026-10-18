@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import FinanceDataReader as fdr
+import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
 from lib import price_metrics
@@ -86,6 +87,8 @@ try:
         if cc not in induty:
             j = dart('company.json', corp_code=cc)
             induty[cc] = j.get('induty_code', '')
+            if len(induty) % 50 == 0:
+                save('induty.json', induty)
     save('induty.json', induty)
 
     # 4) 분기 재무: 과거는 캐시 재사용, 최근 2개 연도는 매번 다시 받음(정정공시 반영)
@@ -105,6 +108,8 @@ try:
                     if vals:
                         fin.setdefault(cc, {})[lab] = vals
             done.add(lab)
+            save('fin2.json', fin)
+            save('fin2_done.json', sorted(done))
             print('재무', lab)
     save('fin2.json', fin)
     save('fin2_done.json', sorted(done))
@@ -131,3 +136,12 @@ with ThreadPoolExecutor(8) as ex:
     prices = {c: m for c, m in ex.map(px, listing) if m}
 save('prices.json', prices)
 print('시세', len(prices))
+
+# 손절폭의 $0.3B 기준을 한국에도 동일하게 적용하기 위한 실제 원/달러 환율
+try:
+    fx_df = yf.download('USDKRW=X', period='5d', auto_adjust=False, progress=False, group_by='ticker')
+    fx_close = fx_df['USDKRW=X']['Close'].dropna()
+    if not fx_close.empty and float(fx_close.iloc[-1]) > 0:
+        save('fx.json', {'krw_per_usd': float(fx_close.iloc[-1]), 'date': fx_close.index[-1].date().isoformat()})
+except Exception as e:
+    print('환율 조회 실패, 이전 환율이 있으면 재사용:', type(e).__name__)

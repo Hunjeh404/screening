@@ -6,6 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from lib import analyze, shift_label
+from card_rules import persist_cards, write_json, SCHEMA_VERSION
 from lib_kr import to_ext
 
 CACHE = sys.argv[1] if len(sys.argv) > 1 else 'data/cache/kr'
@@ -15,6 +16,10 @@ load = lambda n: json.load(open(f'{CACHE}/{n}', encoding='utf-8'))
 listing, corp, induty, fin, prices = (load(n) for n in
     ('listing.json', 'corp.json', 'induty.json', 'fin2.json', 'prices.json'))
 today = dt.date.today().isoformat()
+fx = load('fx.json') if os.path.exists(f'{CACHE}/fx.json') else {}
+rate = fx.get('krw_per_usd')
+if not isinstance(rate, (int, float)) or rate <= 0:
+    rate = None
 
 stocks = []
 for code, info in listing.items():
@@ -30,16 +35,21 @@ for code, info in listing.items():
                    'fin': induty.get(cc, '')[:2] in ('64', '65', '66'), **a})
 
 # 실적 발표가 늦어 최신 분기가 2분기 이상 뒤처진 종목은 신고가 판정에서 제외
+if not stocks:
+    raise SystemExit('분석 가능한 종목이 없어 기존 데이터와 이력을 보존합니다')
+if not any(s.get('ma200') for s in stocks):
+    raise SystemExit('200일선 시세를 먼저 새로 수집해야 합니다')
 newest = max(s['latest_q'] for s in stocks)
 fresh = shift_label(newest, -1)
 for s in stocks:
     s['stale'] = s['latest_q'] < fresh
     s['record'] = not s['stale'] and ((s['rev_q'] and s['rev_ttm']) or (s['op_q'] and s['op_ttm']))
-    s['wk'] = prices.get(s['code'], {}).get('wk') if s['record'] else None
+    s['wk'] = prices.get(s['code'], {}).get('wk')
+    s['mcap_b'] = s['marcap'] / rate / 1e9 if s['marcap'] is not None and rate else None
 
 meta = {'generated': dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d %H:%M'),
-        'sample': os.path.exists(f'{CACHE}/SAMPLE'), 'count': len(stocks), 'newest_q': newest}
-os.makedirs(os.path.dirname(OUT), exist_ok=True)
-json.dump({'meta': meta, 'stocks': stocks}, open(OUT, 'w', encoding='utf-8'),
-          ensure_ascii=False, separators=(',', ':'))
+        'schema_version': SCHEMA_VERSION, 'sample': os.path.exists(f'{CACHE}/SAMPLE'), 'count': len(stocks), 'newest_q': newest, 'fx': fx}
+persist_cards(stocks, 'kr', meta['generated'], os.path.join(os.path.dirname(OUT), 'card_history.json'))
+meta['count'] = len(stocks)
+write_json(OUT, {'meta': meta, 'stocks': stocks})
 print(f"{len(stocks)}종목, 실적 신고가 {sum(s['record'] for s in stocks)}종목 -> {OUT}")

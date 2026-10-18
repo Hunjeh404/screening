@@ -20,7 +20,7 @@ cache = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
 data = json.load(open(OUT, encoding='utf-8'))
 
 tk = lambda s: s.get('yahoo', s['code'])  # 한국 종목은 005930.KS 같은 야후 티커
-todo = [tk(s) for s in data['stocks'] if s['record'] and tk(s) not in cache]
+todo = [tk(s) for s in data['stocks'] if (s['record'] or s.get('state')) and tk(s) not in cache]
 for i, t in enumerate(todo):
     try:
         sec = yf.Ticker(t).info.get('sector')
@@ -34,6 +34,17 @@ for i, t in enumerate(todo):
 json.dump(cache, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
 
 for s in data['stocks']:
-    s['sector'] = KO.get(cache.get(tk(s)), '미분류') if s['record'] else None
+    s['sector'] = KO.get(cache.get(tk(s)), '미분류') if s['record'] or s.get('state') else None
 json.dump(data, open(OUT, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
 print(f"섹터 조회 {len(todo)}건, 미분류 {sum(1 for s in data['stocks'] if s['sector'] == '미분류')}종목")
+
+history_path = os.path.join(os.path.dirname(OUT), 'card_history.json')
+if os.path.exists(history_path):
+    from card_rules import write_json
+    history = json.load(open(history_path, encoding='utf-8'))
+    market = 'kr' if OUT.endswith('data_kr.json') else 'us'
+    for s in data['stocks']:
+        entry = history.get('tickers', {}).get(f"{market}:{s['code']}")
+        if entry and entry.get('snapshot'):
+            entry['snapshot']['sector'] = s.get('sector')
+    write_json(history_path, history)
