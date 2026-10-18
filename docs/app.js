@@ -58,7 +58,8 @@ function tagReasons(s,tag) {
     case '턴어라운드': {
       const lines=[];
       if(s.close>=s.ma120&&s.close<s.ma200)lines.push('120일선 회복 · 200일선 아래',...ma);
-      if(Number.isFinite(s.op_ttm_value)&&s.op_ttm_value<0&&s.rev_q&&s.rev_ttm)lines.push('TTM 영업적자 · 분기 및 TTM 매출 신고가',...losses,...opTrend,fscoreLine);
+      const opLoss=[s.op_ttm_value,s.op_ttm_year_ago].some(v=>Number.isFinite(v)&&v<0);
+      if(opLoss&&s.rev_q&&s.rev_ttm)lines.push('TTM 영업적자 또는 1년 전 영업적자 · 분기 및 TTM 매출 신고가',...losses,`1년 전 TTM 영업이익 ${mil(s.op_ttm_year_ago)}`,...opTrend,fscoreLine);
       return lines.length?lines:['편입 당시 턴어라운드 조건 충족',...ma];
     }
     case '매출': return ['최근 단일 분기·TTM 매출 모두 과거 최고',`${s.latest_q||'최근 분기'} 매출 ${mil(last(q.rev))}`,`최근 4분기 매출 합계 ${mil(s.rev_ttm_value)}`];
@@ -72,7 +73,7 @@ function tagReasons(s,tag) {
     case '피크아웃': return ['TTM 매출·영업이익 동반 감소',...totals];
     case '적자전환': {
       const lines=[];
-      const special=s.fin||s.history?.entry_turnaround||(Number.isFinite(s.op_ttm_value)&&s.op_ttm_value<0&&s.rev_q&&s.rev_ttm);
+      const special=s.fin||s.history?.entry_turnaround||([s.op_ttm_value,s.op_ttm_year_ago].some(v=>Number.isFinite(v)&&v<0)&&s.rev_q&&s.rev_ttm);
       if(s.fin&&s.roe3!=null&&s.roe3<8)lines.push(`금융업 3년 평균 ROE ${unit(s.roe3,'%')} < 8%`);
       if(s.history?.entry_op_loss&&s.rev_q===false)lines.push('영업적자로 편입한 종목의 분기 매출 신고가 실패',`최근 분기 매출 ${mil(last(q.rev))}`);
       if(!special){

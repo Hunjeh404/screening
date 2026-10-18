@@ -355,7 +355,7 @@ def analyze(ext, px, sh):
     return {
         **{k: px.get(k) for k in ('close', 'ma20', 'ma120', 'ma200', 'vol20', 'vol60', 'change_pct', 'price_date', 'hunbot')},
         'ni_ttm': ni_now, 'rev_ttm_value': rev_t[-1], 'prev_rev_ttm': rev_t[-2],
-        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'latest_op': op_q[-1], 'prev_op': op_q[-2],
+        'op_ttm_value': op_t[-1], 'prev_op_ttm': op_t[-2], 'op_ttm_year_ago': op_t[-5] if len(op_t) >= 5 else None, 'latest_op': op_q[-1], 'prev_op': op_q[-2],
         'prev2_op': op_q[-3] if len(op_q) >= 3 else None,
         'fscore': fs, 'fscore_max': fs_max, 'fscore_items': fs_items,
         'latest_q': seq[-1], **rec, 'marcap': None if marcap is None else round(marcap), 'share_warn': share_warn,

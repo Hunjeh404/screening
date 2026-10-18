@@ -61,9 +61,15 @@ def obv_signal(w):
     return '매집' if oz > 1 and pz <= 1 else '중립'
 
 
+def op_loss(s):
+    """최근 4분기 영업적자이거나, 1년 전 4분기 합계가 영업적자(흑자 전환 직후)"""
+    return any(valid(s.get(k)) and s[k] < 0 for k in ('op_ttm_value', 'op_ttm_year_ago'))
+
+
 def loss_turnaround(s):
     # 적자 판단은 영업이익 기준. 순이익만 적자(일회성 손실 등)인 회사는 일반 경로로 판정한다.
-    return valid(s.get('op_ttm_value')) and s['op_ttm_value'] < 0 and bool(s.get('rev_q') and s.get('rev_ttm'))
+    # 막 흑자로 돌아선 회사도 일반 경로(5년 연속 흑자 등)에 맞지 않으므로 턴어라운드로 본다.
+    return op_loss(s) and bool(s.get('rev_q') and s.get('rev_ttm'))
 
 
 def op_improving(s):

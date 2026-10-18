@@ -77,6 +77,12 @@ class RuleTest(unittest.TestCase):
         rows=[stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9)];rows[0]['latest_op']=-15
         update_history(rows,h,'us','2026-10-17 08:00')
         self.assertEqual(rows[0]['state'],'HOLD');self.assertIn('영익 개선 미달',rows[0]['state_reasons'])
+    def test_just_turned_profitable_is_turnaround(self):
+        TA=dict(per=None,prev2_op=-20,prev_op=-10,latest_op=5,fscore=7,fscore_max=9,roe3=-10,profit_years=0)
+        self.assertTrue(buy_eligible(stock(op_ttm_value=3,op_ttm_year_ago=-40,**TA)))
+        self.assertFalse(buy_eligible(stock(op_ttm_value=3,op_ttm_year_ago=10,**TA)))
+        s=stock(op_ttm_value=3,op_ttm_year_ago=-40,**TA);enrich(s)
+        self.assertEqual(s['trend'],'턴어라운드');self.assertEqual(s['metrics']['expected_loss'],-5)
     def test_loss_turnaround_fscore(self):
         for score, maximum, expected in [(7,9,True),(6,9,False),(9,9,True),(5,6,True),(4,6,False),
                                          (None,9,False),(7,None,False),(8,8,False)]:
