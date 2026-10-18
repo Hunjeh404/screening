@@ -73,7 +73,7 @@ function sectors(stocks) {
 function stateSections(stocks) {
   return Object.keys(STATES).map(st=>{
     const rows=stocks.filter(s=>s.state===st);
-    return rows.length?`<section><h2 class="state-heading ${st.toLowerCase()}">${STATES[st]} · ${rows.length}종목</h2>${sectors(rows)}</section>`:'';
+    return rows.length?`<section>${sectors(rows)}</section>`:'';
   }).join('');
 }
 function render() {

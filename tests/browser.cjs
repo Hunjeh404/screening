@@ -45,8 +45,8 @@ const server=http.createServer((req,res)=>{
  assert.ok(await page.locator('h1').evaluate(el=>el.getBoundingClientRect().bottom<0));
  await page.evaluate(()=>window.scrollTo(0,0));
  await first.locator('.chips').click();assert.equal(await first.getAttribute('open'),null);
- await page.locator('[data-value="FAIR"]').click();assert.match(await page.locator('#list').innerText(),/적정가치/);assert.equal(await page.locator('.card').count(),1);
- await page.locator('[data-value="HIGH"]').click();assert.match(await page.locator('#list').innerText(),/고평가/);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/가치평가 기준 부족/);
+ await page.locator('[data-value="FAIR"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),1);
+ await page.locator('[data-value="HIGH"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/가치평가 기준 부족/);
  for(const width of [360,820]){
   await page.setViewportSize({width,height:1000});
   const geometry=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth,market:document.querySelector('.markets').getBoundingClientRect().top,value:document.querySelector('.values').getBoundingClientRect().top}));
