@@ -1,0 +1,30 @@
+name: debug
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: none
+          restore-keys: cache-
+      - run: pip install -q yfinance
+      - run: |
+          python3 - <<'PY'
+          import json, os, time, yfinance as yf
+          out=[]
+          for p in ('data/cache/sector.json','data/cache/kr/sector.json'):
+              c=json.load(open(p)) if os.path.exists(p) else {}
+              out.append(f"{p} {len(c)}개 NVDA={c.get('NVDA')!r}")
+          d=json.load(open('docs/data.json'))
+          miss=[s['code'] for s in d['stocks'] if s.get('state') and s.get('sector')=='미분류']
+          out.append('미분류 '+','.join(miss))
+          for t in ['NVDA']+miss[:3]+['005930.KS']:
+              try:
+                  i=yf.Ticker(t).info; out.append(f"{t} sector={i.get('sector')!r} keys={len(i)}")
+              except Exception as e: out.append(f"{t} 오류 {type(e).__name__}: {str(e)[:120]}")
+              time.sleep(1)
+          print('::warning title=sec::'+' | '.join(out))
+          PY
