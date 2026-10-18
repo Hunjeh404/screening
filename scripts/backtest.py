@@ -24,8 +24,12 @@ BT = 'data/bt'
 START = '2013-01-01'
 COST = .001            # 편도 거래 비용
 # 전략: (이동평균 조건 사용, 목표가 트레일링 스탑 사용). 모두 최대 5종목, 매수 20% + ▲ 10%
-# 전략: 매수 방식. 모두 이평선 O·공시지연 X·1차 50%/2차 25% TS, 최대 5종목, 매수 20% + ▲ 10%, 손절선 항상 유지
-STRATEGIES = {'limitA': '지정가(손절폭 5% 이내) · ▲ 시 시가 즉시매수', 'limitB': '지정가(손절폭 5% 이내)만'}
+# 전략: 모두 이평선 O·공시지연 X·1차 50%/2차 25% TS, 최대 5종목, 매수 20%(추가매수 없음), 손절선 항상 유지
+# 기본 3가지(1 신호 무관 20% / 2 훈봇 무관 / 3 ▲·초강세 확인 후 매수) × (그대로 / SPY 200일선 필터 / 1차 후 본전 손절)
+BASES = {'v1': ('1 신호 무관 20%', dict()), 'v2': ('2 훈봇 무관', dict(pause=False)),
+         'v3': ('3 ▲·초강세 확인 후', dict(entry='wait'))}
+EXTRAS = {'': ('', dict()), 'r': (' · SPY 200일선', dict(regime=True)), 'b': (' · 1차 후 본전손절', dict(breakeven=True))}
+STRATEGIES = {b + e: (bn + en, {**bk, **ek}) for b, (bn, bk) in BASES.items() for e, (en, ek) in EXTRAS.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
@@ -176,7 +180,12 @@ class Book:
     ts=True: 목표가에 닿으면 해당 물량(1차 50%, 2차 25%)에 트레일링 스탑을 건다.
     ts=False: 목표가에 닿으면 그 가격에 바로 판다(1차 50%, 2차 남은 물량의 50%)."""
 
-    def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0):
+    def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
+                 pause=True, regime=False, breakeven=False):
+        # entry 'wait': 매수 카드에 오른 뒤 ▲ 또는 초강세가 확인되면 다음 날 시가 (기다리는 종목은 슬롯 미포함)
+        # pause: 초강세 구간에 트레일링 스탑을 쉼. regime: SPY가 200일선 아래면 신규 매수 안 함
+        # breakeven: 1차 목표가 도달 후 손절가를 매수가로 올림
+        self.pause, self.regime, self.breakeven, self.watch, self.mkt_ok = pause, regime, breakeven, set(), True
         # exits: 'ts12'(1차 50%·2차 25% TS) 'now12'(목표가 즉시매도) 'ts2'(2차 50% TS) 'none'(매도카드까지 보유)
         # entry: 'open'(카드 다음 날 시가) 'limitA'(손절가까지 cap% 이내 지정가, ▲면 시가 즉시) 'limitB'(지정가만)
         self.exits = exits or ('ts12' if ts else 'now12')
@@ -214,7 +223,7 @@ class Book:
         else:
             m = o['metrics']
             lv = o.get('levels') or {}   # 지정가 매수: 카드 손절가·목표가(가격). 없으면 매수가 기준 비율
-            if self.entry != 'open' and not lv:   # ▲ 즉시 매수: 매수가 -cap% 손절, 목표가는 카드 가격
+            if self.entry in ('limitA', 'limitB') and not lv:   # ▲ 즉시 매수: 매수가 -cap% 손절, 목표가는 카드 가격
                 lv = {'stop': px * (1 - self.cap / 100), 'tp1': o['card_close'] * (1 + m['target_1'] / 100),
                       'tp2': o['card_close'] * (1 + m['target_2'] / 100), 'trail': -self.cap}
             self.pos[t] = {'sh': q, 'base': q, 'spent': spent, 'proceeds': 0.0, 'entry': px, 'last': px,
@@ -253,7 +262,7 @@ class Book:
                 alive = True
                 for tr in list(p['trails']):   # 걸어 둔 트레일링 스탑 (걸린 다음 날부터)
                     level = tr['peak'] * (1 + p['trail'] / 100)
-                    if not p['bull'] and k > tr['k'] and lo <= level:
+                    if not (p['bull'] and self.pause) and k > tr['k'] and lo <= level:
                         p['trails'].remove(tr)
                         alive = self._sell(t, tr['q'], min(op, level), k, tr['name'] + ' TS매도')
                         if not alive:
@@ -265,6 +274,8 @@ class Book:
                 for key, lvl, frac, name, need in PLANS[self.exits]:
                     if not p[key] and (need is None or p[need]) and hi >= p['tp' + lvl[1]]:
                         p[key] = True
+                        if self.breakeven and key == 't1_done':
+                            p['stop'] = max(p['stop'], p['entry'])
                         p['trails'].append({'q': p['base'] * frac, 'peak': hi, 'k': k, 'name': name})
                         p['events'].append(name + '목표')
             elif not p['bull']:
@@ -309,6 +320,11 @@ class Book:
                                'levels': None, 'label': '▲시가매수'})
             else:
                 self.pending[t]['added'] = signal(t)
+        if self.entry == 'wait':   # 기다리는 종목: 매수 카드에서 빠지면 제외, ▲·초강세 확인 시 다음 날 시가 20%
+            self.watch = {t for t in self.watch | set(newly) if t not in self.pos
+                          and cards.get(t, {}).get('state') == 'BUY' and cards[t]['metrics']['expected_loss'] is not None}
+            go = [cards[t] for t in self.watch if signal(t) or cards[t]['hunbot'].get('super_bull')]
+            newly = [s['code'] for s in go]
         waiting = {o['t'] for o in orders if o['side'] == 'buy'} | set(self.pending)
         free = self.slots - (len(self.pos) - len(sells)) - len(waiting - set(self.pos))
         new = sorted((cards[t] for t in newly if t not in self.pos and t not in waiting
@@ -316,7 +332,9 @@ class Book:
                      key=lambda s: (abs(s['metrics']['expected_loss']), -s['metrics']['target_1']))
         for s in new[:max(free, 0)]:
             added, m, c = signal(s['code']), s['metrics'], s.get('close')
-            if self.entry == 'open':
+            if self.regime and not self.mkt_ok:
+                continue
+            if self.entry in ('open', 'wait'):
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
                                'added': added, 'metrics': m})
             elif self.entry == 'limitA' and added:
@@ -414,7 +432,7 @@ def report(books, spy, days):
     W, H, P = 760, 300, 36
     allv = np.log([x for c in series.values() for x in c])
     lo, hi = allv.min(), allv.max()
-    colors = ['#5fe0c2', '#f2c14e', '#e8796b', '#8fb8ff', '#8aa0a6']
+    colors = ['#5fe0c2', '#f2c14e', '#e8796b', '#8fb8ff', '#c792ea', '#ff9e64', '#9ece6a', '#f7768e', '#7dcfff', '#8aa0a6']
     paths = []
     for (name, curve), col in zip(series.items(), colors):
         step = max(1, len(curve) // 600)
@@ -443,11 +461,11 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>자산 곡선 (로그 축)</h2><div class="box"><div class="legend">{legend}</div><svg viewBox="0 0 {W} {H}">{"".join(paths)}</svg></div>
 <h2>연도별 수익률</h2><div class="box"><table>{ytable}</table></div>
 <h2>규칙과 한계</h2><ul>
-<li>공통: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순. 걸어 둔 지정가도 보유 종목 수에 포함.</li>
-<li>매수: 카드에 오른 날은 사지 않고, 그날 종가 기준 카드 손절가까지 5% 이내가 되는 가격(손절가÷0.95)에 지정가. 다음 날부터 장중 저가가 닿으면 그 가격(갭 하락이면 시가)에 20%, 직전 종가 기준 훈봇 ▲면 30%. 오르기만 하거나 매수 카드에서 빠지면 사지 않음.</li>
-<li>▲ 시 시가 즉시매수: 지정가 대기 중 훈봇 ▲가 뜨면 다음 날 시가에 30% 매수, 손절은 매수가 −5%. 지정가로 20% 산 뒤 ▲가 뜨면 다음 날 시가에 10% 추가(손절가 유지). 지정가만: ▲여도 지정가에서만 매수.</li>
-<li>손절: 카드 손절가(▲ 즉시매수는 매수가 −5%)에 항상 걸려 있음(초강세 포함). 목표가는 카드 종가 기준 가격. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률, 최대 5%)으로 매도하고, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
-<li>목표가·손절·지정가는 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결, 매도 카드는 다음 날 시가. 같은 날 손절과 목표가가 겹치면 손절로 처리, 지정가 체결 당일 저가가 손절가 이하면 그날 손절.</li>
+<li>공통: 최대 5종목, 이평선 조건 사용, 공시지연 미사용, 매수는 자산의 20%(추가 매수 없음). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
+<li>1 신호 무관 20%: 매수 카드에 오르면 다음 날 시가 매수. 2 훈봇 무관: 1과 같고 초강세 구간에도 트레일링 스탑을 쉬지 않음. 3 ▲·초강세 확인 후: 매수 카드 상태에서 훈봇 ▲ 또는 초강세가 확인된 다음 날 시가 매수(기다리는 종목은 5종목에 미포함, 매수 카드에서 빠지면 취소).</li>
+<li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 1·3은 초강세 구간에서 트레일링 스탑을 쉼.</li>
+<li>SPY 200일선: SPY 종가가 200일선 아래면 신규 매수 안 함. 1차 후 본전손절: 1차 목표가 도달 후 손절가를 매수가로 올림.</li>
+<li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''
     open('docs/backtest.html', 'w', encoding='utf-8').write(html)
@@ -478,7 +496,10 @@ def main():
     cur, rec, started = [None] * len(cos), set(), False
     quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
     histories = {False: {}}
-    books = {key: Book(exits='ts12', entry=key) for key in STRATEGIES}
+    books = {key: Book(exits='ts12', add=0, **kw) for key, (_, kw) in STRATEGIES.items()}
+    zc = z['c'].astype(float)
+    ma200 = np.convolve(zc, np.ones(200) / 200, 'valid')
+    spy_ok = np.concatenate([np.ones(199, bool), zc[199:] >= ma200])[i0:]
     cr.USE_MA = True
     for k in range(len(CAL)):
         for ci, snap in events.get(k, ()):
@@ -510,11 +531,12 @@ def main():
                     if s['state'] == 'BUY' and last[-1].get('to') == 'BUY' and last[-1].get('date') == day:
                         newly.append(s['code'])
             for b in books.values():
+                b.mkt_ok = bool(spy_ok[k])
                 b.evening(k, bar, cards, newly)
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
     cr.USE_STALE = False
-    for line in report({STRATEGIES[key]: b for key, b in books.items()}, spy, CAL):
+    for line in report({STRATEGIES[key][0]: b for key, b in books.items()}, spy, CAL):
         print('::warning title=backtest::' + line)
 
 

@@ -165,6 +165,36 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(b.pos['A']['spent'], .3)
         self.assertAlmostEqual(b.pos['A']['entry'], 92 / .95)
 
+    def test_wait_entry_regime_breakeven(self):
+        C = lambda **kw: {'A': card('A', **kw)}
+        b = bt.Book(5, cost=0, add=0, entry='wait')                          # ▲·초강세 확인 전에는 안 삼
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 101, 99, 100)}, C(), []),
+                          ({'A': (100, 101, 99, 100)}, C(bull=True), []), ({'A': (102, 103, 101, 102)}, C(), [])])
+        self.assertEqual(b.pos['A']['entry'], 102)
+        self.assertAlmostEqual(b.pos['A']['spent'], .2)
+        b = bt.Book(5, cost=0, add=0, entry='wait')                          # 확인 전 매수 카드에서 빠지면 취소
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 101, 99, 100)}, C(state='HOLD'), []),
+                          ({'A': (100, 101, 99, 100)}, C(state='BUY', age=0), []), ({'A': (100, 101, 99, 100)}, {}, [])])
+        self.assertEqual(b.pos, {})
+        b = bt.Book(5, cost=0, regime=True)                                  # SPY 200일선 아래면 신규 매수 안 함
+        b.mkt_ok = False
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 101, 99, 100)}, C(), [])])
+        self.assertEqual(b.pos, {})
+        b = bt.Book(5, cost=0, add=0, breakeven=True)                        # 1차 목표 후 손절가 = 매수가
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 111, 100, 110)}, C(), []),
+                          ({'A': (104, 104, 99, 100)}, C(state='HOLD'), [])])
+        self.assertEqual(b.closed[0]['exit'], '손절')
+        self.assertAlmostEqual(b.cash, 1)                                   # 손절을 먼저 보므로 전량 매수가 100에 매도
+
+    def test_no_bull_pause(self):
+        days = self.scenario()
+        b = bt.Book(5, cost=0, add=0, pause=False)
+        self.run_days(b, days[:4])
+        self.assertIn('1차 TS매도', b.pos['A']['events'])                    # 초강세여도 TS 매도 (기본은 쉼)
+        b = bt.Book(5, cost=0, add=0)
+        self.run_days(b, days[:4])
+        self.assertNotIn('1차 TS매도', b.pos['A']['events'])
+
 
 if __name__ == '__main__':
     unittest.main()
