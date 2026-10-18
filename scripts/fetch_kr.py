@@ -43,16 +43,18 @@ class LimitReached(Exception):
 
 
 def dart(path, **params):
-    # 일시적인 연결 실패(시간 초과 등)는 간격을 늘려 가며 다시 시도
-    for i in range(5):
+    # 일시적인 연결 실패(시간 초과 등)는 간격을 늘려 가며 다시 시도 (대기 합계 약 5분)
+    waits = (10, 20, 30, 60, 90, 120)
+    for i in range(len(waits) + 1):
         try:
             r = requests.get(f'{API}/{path}', params={'crtfc_key': KEY, **params}, timeout=60)
             r.raise_for_status()
             break
-        except requests.RequestException:
-            if i == 4:
+        except requests.RequestException as e:
+            if i == len(waits):
                 raise
-            time.sleep(10 * (i + 1))
+            print(f'DART 연결 실패({type(e).__name__}), {waits[i]}초 후 재시도', flush=True)
+            time.sleep(waits[i])
     if path.endswith('.xml'):
         return r.content
     j = r.json()
