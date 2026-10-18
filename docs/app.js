@@ -54,8 +54,7 @@ function card(s) {
     <div class="detail"><div class="distances">120선 ${signed(s.dist_ma120)} · 200선 ${signed(s.dist_ma200)}</div><div class="grid">
       ${metric('현재가',price(s.close))}${metric('ROE 3년',unit(s.roe3,'%'))}${metric(s.fin?'PBR':'부채비율',s.fin?unit(s.pbr,'배',2):unit(s.debt,'%',1))}
       ${metric('PER (5년 중앙)',num(s.per)+' ('+num(s.per_med5)+')')}${metric('52주 고점 대비',unit(s.dd52,'%'))}${metric('시가총액',bil(s.marcap))}
-      ${metric('120일선',price(s.ma120))}${metric('200일선',price(s.ma200))}${metric('20일선',price(s.ma20))}${metric('당일 등락률',signed(s.change_pct))}
-      ${metric('20일 변동성',unit(s.vol20==null?null:s.vol20*100,'%'))}${metric('60일 변동성',unit(s.vol60==null?null:s.vol60*100,'%'))}
+      ${metric('120일선',price(s.ma120))}${metric('200일선',price(s.ma200))}${metric('당일 등락률',signed(s.change_pct))}
     </div>
     <div class="chart-cols"><div><h4>분기 매출</h4>${bars(q.labels,q.rev)}</div><div><h4>분기 영업이익 (금융업은 세전이익)</h4>${bars(q.labels,q.op)}</div></div>
     <div class="returns">${metric('예상 손실률',signed(m.expected_loss),'neg')}${metric('목표 수익률(1차)',signed(m.target_1))}${metric('목표 수익률(2차)',signed(m.target_2))}</div></div>
