@@ -10,21 +10,28 @@ jobs:
           path: data/cache
           key: none
           restore-keys: cache-
-      - run: pip install -q yfinance
+      - run: pip install -q -r requirements.txt
       - run: |
           python3 - <<'PY'
-          import json, os, time, yfinance as yf
-          out=[]
-          for p in ('data/cache/sector.json','data/cache/kr/sector.json'):
-              c=json.load(open(p)) if os.path.exists(p) else {}
-              out.append(f"{p} {len(c)}개 NVDA={c.get('NVDA')!r}")
-          d=json.load(open('docs/data.json'))
-          miss=[s['code'] for s in d['stocks'] if s.get('state') and s.get('sector')=='미분류']
-          out.append('미분류 '+','.join(miss))
-          for t in ['NVDA']+miss[:3]+['005930.KS']:
-              try:
-                  i=yf.Ticker(t).info; out.append(f"{t} sector={i.get('sector')!r} keys={len(i)}")
-              except Exception as e: out.append(f"{t} 오류 {type(e).__name__}: {str(e)[:120]}")
-              time.sleep(1)
-          print('::warning title=sec::'+' | '.join(out))
+          import json, sys, time, requests
+          sys.path.insert(0, 'scripts')
+          from lib import extract, shares_out, analyze
+          from lib_kr import parse_multi_acnt, to_ext
+          import os
+          UA = {'User-Agent': os.environ['UA']}
+          px = json.load(open('data/cache/prices.json'))
+          out = []
+          for t, cik in [('NVDA',1045810),('CRWD',1535527),('RBLX',1315098),('SNOW',1640147),('GPN',1123360),('NET',1477333)]:
+              f = requests.get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json', headers=UA, timeout=60).json()['facts']
+              ext = extract(f); a = analyze(ext, px.get(str(cik)), shares_out(f))
+              L = sorted(ext['fq'])[-1] if ext['fq'] else None
+              out.append(f"{t} F={a and a['fscore']}/{a and a['fscore_max']} items={a and a['fscore_items']} op={a and [a['prev2_op'],a['prev_op'],a['latest_op']]} fq_last={L}:{ext['fq'].get(L)} wsh={ext['wsh']} bs_last={ext['bs'][sorted(ext['bs'])[-1]]}")
+              time.sleep(0.3)
+          for line in out: print('::warning title=us::' + line[:1800])
+          K = os.environ['K']
+          j = requests.get('https://opendart.fss.or.kr/api/fnlttMultiAcnt.json', params={'crtfc_key':K,'corp_code':'00126380,00164779','bsns_year':2026,'reprt_code':'11012'}, timeout=60).json()
+          print('::warning title=kr::' + json.dumps({'names': sorted({x['account_nm'] for x in j.get('list',[])}), 'parsed': parse_multi_acnt(j.get('list',[]), 2)}, ensure_ascii=False)[:1800])
           PY
+        env:
+          UA: ${{ secrets.SEC_USER_AGENT }}
+          K: ${{ secrets.DART_API_KEY }}

@@ -7,6 +7,12 @@ ACCT = {
     'ni': ('당기순이익',),
     'liab': ('부채총계',),
     'equity': ('자본총계',),
+    # F-스코어용 재무상태
+    'assets': ('자산총계',),
+    'ca': ('유동자산',),
+    'cl': ('유동부채',),
+    'ncl': ('비유동부채',),
+    'cap': ('자본금',),
 }
 IS_KEYS = ('rev', 'op', 'ni')
 
@@ -86,7 +92,8 @@ def to_ext(per):
             if row:
                 q[lab] = row
             if p.get('equity') is not None:
-                bs[lab] = {'equity': p['equity'], 'liab': p.get('liab')}
+                bs[lab] = {'equity': p['equity'], 'liab': p.get('liab'),
+                           **{k: p.get(k) for k in ('assets', 'ca', 'cl', 'ncl', 'cap')}}
         if f'{y}Q4' in per:
             p = per[f'{y}Q4']
             a[f'{y}-12-31'] = {k: p.get(k) for k in ('rev', 'op', 'ni', 'equity')}
