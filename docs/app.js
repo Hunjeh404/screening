@@ -127,7 +127,9 @@ function card(s) {
       ${metric('기준정보',s.latest_q||'–')}
     </div>
     <div class="chart-cols"><div><h4>분기 매출</h4>${bars(q.labels,q.rev)}</div><div><h4>분기 영업이익 (금융업은 세전이익)</h4>${bars(q.labels,q.op)}</div></div>
-    <div class="returns">${metric('예상 손실률',signed(m.expected_loss),'neg')}${metric('목표 수익률(1차)',signed(m.target_1))}${metric('목표 수익률(2차)',signed(m.target_2))}</div></div>
+    <div class="returns">${[['예상 손실률',m.expected_loss,'neg'],['목표 수익률(1차)',m.target_1,''],['목표 수익률(2차)',m.target_2,'']]
+      .map(([l,v,c])=>`<div class="m"><span>${l}</span><b class="${c}">${esc(signed(v))}</b><small class="cost-price" data-pct="${Number.isFinite(v)?v:''}" data-html2canvas-ignore></small></div>`).join('')}</div>
+    <label class="cost-row" data-html2canvas-ignore>매입단가<input type="number" inputmode="decimal" min="0" step="any" class="cost-input" placeholder="가격 입력" aria-label="${esc(s.code)} 매입단가"></label></div>
   </details>`;
 }
 function sectors(stocks) {
@@ -164,6 +166,13 @@ function render() {
     event.preventDefault();event.stopPropagation();
     showTagDialog(button.dataset.tag,JSON.parse(button.dataset.reasons));
   }));
+  $('list').querySelectorAll('.cost-input').forEach(input=>input.addEventListener('input',()=>{
+    const cost=parseFloat(input.value);
+    input.closest('.detail').querySelectorAll('.cost-price').forEach(el=>{
+      const pct=parseFloat(el.dataset.pct);
+      el.textContent=cost>0&&Number.isFinite(pct)?price(cost*(1+pct/100)):'';
+    });
+  }));
   $('list').querySelectorAll('.share-card').forEach(button=>button.addEventListener('click',async event=>{
     event.preventDefault();event.stopPropagation();
     if(button.disabled)return;
@@ -176,18 +185,24 @@ function render() {
 async function load(m) {
   const id=++requestId;MKT=m;DATA=null;
   document.querySelectorAll('[data-market]').forEach(b=>{const on=b.dataset.market===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));});
-  $('banner').innerHTML='';$('list').innerHTML='<div class="empty">불러오는 중…</div>';$('generated').textContent='…';$('quarter').textContent='…';
+  $('banner').innerHTML='';$('list').innerHTML='<div class="empty">불러오는 중…</div>';$('generated').textContent='…';
   try {
     const d=await(CACHE[m]||(CACHE[m]=fetch(FILES[m],{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();})));
     if(id!==requestId)return;
-    $('generated').textContent=d.meta.generated;$('quarter').textContent=d.meta.newest_q;
+    $('generated').textContent=d.meta.generated;
     if(d.meta.schema_version!==2){$('banner').innerHTML='<div class="banner">200일선 및 카드 이력 데이터를 갱신 중입니다. 새 데이터가 생성되면 표시됩니다.</div>';$('list').innerHTML='';return;}
     DATA=d;
     if(d.meta.sample)$('banner').innerHTML='<div class="banner">가상의 샘플 데이터입니다.</div>';
     render();
   }catch(e){delete CACHE[m];if(id===requestId){$('list').innerHTML='';$('banner').innerHTML='<div class="banner">'+(m==='kr'?'한국 데이터를 불러오지 못했습니다.':'데이터를 불러오지 못했습니다.')+' 잠시 후 새로고침해 주세요.</div>';}}
 }
+function qqqQuote(q) {
+  if(!q||!Number.isFinite(q.close))return '';
+  const cls=v=>Number.isFinite(v)?v>0?'pos':v<0?'neg':'neutral':'neutral',usd=v=>Number.isFinite(v)?'$'+num(v,2):'–';
+  return `<span class="quote-item">QQQ ${usd(q.close)}<span class="${cls(q.change_pct)}">(${signed(q.change_pct)})</span></span> · <span class="quote-item">200일선 <span class="${cls(Number.isFinite(q.ma200)?q.close-q.ma200:null)}">${usd(q.ma200)}</span></span>`;
+}
 if(typeof document!=='undefined'){
+  fetch('qqq.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(q=>{$('qqq').innerHTML=qqqQuote(q);}).catch(()=>{});
   $('tag-close').addEventListener('click',()=>$('tag-dialog').close());
   $('tag-dialog').addEventListener('click',event=>{if(event.target===$('tag-dialog')){
     const r=event.target.getBoundingClientRect();
@@ -198,4 +213,4 @@ if(typeof document!=='undefined'){
     VALUE=b.dataset.value;document.querySelectorAll('[data-value]').forEach(x=>{const on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-selected',String(on));});render();
   }));load('us');
 }
-if(typeof module!=='undefined')module.exports={tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons,isNewState};
+if(typeof module!=='undefined')module.exports={qqqQuote,tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons,isNewState};

@@ -6,6 +6,7 @@ if [[ "$market" == us ]]; then data_file=docs/data.json; else data_file=docs/dat
 git config user.name "github-actions"
 git config user.email "github-actions@users.noreply.github.com"
 git add "$data_file" docs/card_history.json
+[[ "$market" == us && -f docs/qqq.json ]] && git add docs/qqq.json
 git diff --cached --quiet && exit 0
 git commit -m "data: ${market} cards and history $(date +%F)"
 for attempt in 1 2 3; do

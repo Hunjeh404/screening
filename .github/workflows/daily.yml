@@ -54,6 +54,7 @@ jobs:
           python -u scripts/fetch.py 2>&1 | tee fetch.log
           python scripts/screen.py
           python scripts/sectors.py
+          python scripts/qqq.py || echo "::warning::QQQ 시세 갱신 실패, 기존 값 유지"
           bash scripts/publish_data.sh us
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}

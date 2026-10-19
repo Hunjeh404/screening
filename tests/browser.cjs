@@ -5,6 +5,7 @@ const base={state:'BUY',code:'AAA',name:'샘플 기업',market:'Nasdaq',latest_q
 const data={meta:{schema_version:2,count:7,generated:'2026-10-18 08:00',newest_q:'2026Q2'},stocks:[base,{...base,code:'BBB',name:'큰 기업',marcap:2e9,change_pct:-2.5,ni_ttm:-1,hunbot:{lc_age:1,sc:false,super_bull:true,panic:true,details:{sma5:95,bb_basis:95,prev_bb_basis:94,stoch20_ema2:55,prev_stoch20_ema2:54,panic_rsi:25}}},{...base,code:'CCC',sector:'금융'},{...base,code:'FAIR',state:'HOLD',valuation:'LOW'},{...base,code:'HIGH',state:'SELL',valuation:'LOW',state_reasons:['추세이탈']},{...base,code:'NO-PER-BUY',valuation:null,per:null},{...base,code:'NO-PER-SELL',state:'SELL',valuation:null,per:null}]};
 const server=http.createServer((req,res)=>{
   const route=req.url.split('?')[0];
+  if(route==='/qqq.json'){res.setHeader('content-type','application/json');res.end(JSON.stringify({date:'2026-10-16',close:500,change_pct:-1.2,ma200:480}));return;}
   if(route==='/data.json'||route==='/data_kr.json'){res.setHeader('content-type','application/json');res.end(JSON.stringify(data));return;}
   const p=path.join(__dirname,'../docs',route==='/'?'index.html':route.slice(1));
   if(!fs.existsSync(p)){res.statusCode=404;res.end();return;}
@@ -49,6 +50,14 @@ const server=http.createServer((req,res)=>{
  assert.match(await first.locator('.name').getAttribute('href'),/^intent:/);
  await first.locator('.distances').click();assert.equal(await first.getAttribute('open'),'');
  assert.equal(await first.locator('.returns .m').count(),3);
+ await page.locator('#qqq .quote-item').first().waitFor();
+ assert.equal(await page.locator('#qqq').innerText(),'QQQ $500.00(-1.2%) · 200일선 $480.00');
+ assert.equal(await page.locator('#quarter').count(),0);
+ assert.equal(await first.locator('.cost-price').first().innerText(),'');
+ await first.locator('.cost-input').fill('100');
+ const prices=await first.locator('.cost-price').allInnerTexts();
+ const pcts=await first.locator('.cost-price').evaluateAll(els=>els.map(el=>parseFloat(el.dataset.pct)));
+ assert.deepEqual(prices,pcts.map(p=>'$'+(100*(1+p/100)).toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})));
  assert.equal(await first.locator('.grid .m').count(),6);
  assert.match(await first.locator('.grid .m').last().innerText(),/기준정보\s*2026Q2/);
  assert.equal(await first.locator('.trend-metric').count(),0);
