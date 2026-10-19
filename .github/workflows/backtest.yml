@@ -36,6 +36,8 @@ jobs:
         with:
           path: data/bt
           key: bt-data-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: TQQQ stress
+        run: python -u scripts/stress_tqqq.py
       - name: Backtest
         run: python -u scripts/backtest.py
       - name: Publish report

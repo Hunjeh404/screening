@@ -27,10 +27,8 @@ COST = .001            # 편도 거래 비용
 # 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
 _B = dict(spy=True, pause=False)
 _T = dict(_B, idx='TQQQ', idx_ma=True)
-_V = {'base': ('우수전략 · TQQQ 종가 매매', True, _T),
-      'open': ('우수전략 · TQQQ 다음 날 시가 매매', True, dict(_T, idx_open=True)),
-      'cbase': ('카드가 기준 손절·익절 · TQQQ 종가 매매', True, dict(_T, card_px=True)),
-      'copen': ('카드가 기준 손절·익절 · TQQQ 다음 날 시가 매매', True, dict(_T, card_px=True, idx_open=True))}
+_V = {'open': ('우수전략 · TQQQ 다음 날 시가 매매', True, dict(_T, idx_open=True)),
+      'stress': ('우수전략 · TQQQ 자리에 최악 10년(합성 3배) 덮어씌움', True, dict(_T, idx_open=True, idx='NDX3'))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -534,7 +532,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 초강세 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
-<li>카드가 기준: 손절·1차·2차 목표가를 실제 매수가가 아니라 카드에 뜬 날 종가에 퍼센트를 적용한 가격으로 둠(매수 시가가 손절가 이하면 그날 손절). TQQQ 다음 날 시가 매매: 남는 돈의 TQQQ 매수와 QQQ 200일선 판정에 따른 매도·매수를 그날 종가가 아니라 다음 날 시가에 함(종목 매매 후 남은 현금 기준).</li>
+<li>최악 10년 덮어씌움: 종목 매매는 그대로 두고, TQQQ 자리의 가격과 200일선 판정만 나스닥100 지수로 만든 합성 3배(하루 수익률 3배 - 연 0.95%)의 최악 10년 구간 시작일부터의 경로로 바꿈. 같은 시기 종목 폭락은 반영되지 않음. TQQQ 다음 날 시가 매매: 남는 돈의 TQQQ 매수와 200일선 매도·매수를 전날 종가 판정으로 다음 날 시가에.</li>
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
@@ -573,7 +571,14 @@ def main():
         pos = np.clip(np.searchsorted(x['d'], CAL, 'right') - 1, 0, None)
         o, c = x['o'].astype(float)[pos], x['c'].astype(float)[pos]
         return np.where(np.isfinite(o) & (x['d'][pos] == CAL), o, c), c
-    px_idx = {n: idx_px(n) for n in {kw.get('idx', 'SPY') for _, _, kw in STRATEGIES.values()} | {'QQQ'}}
+    names = {kw.get('idx', 'SPY') for _, _, kw in STRATEGIES.values()} | {'QQQ'}
+    px_idx = {n: idx_px(n) for n in names - {'NDX3'}}
+    if 'NDX3' in names:   # 최악 10년 구간의 합성 3배 경로를 2013년부터의 거래일에 그대로 덮어씌움
+        import stress_tqqq
+        O3, C3, ok3, s3 = stress_tqqq.path()
+        assert len(C3) >= len(CAL), '합성 경로가 백테스트 기간보다 짧음'
+        px_idx['NDX3'] = (O3[:len(CAL)], C3[:len(CAL)])
+        print('TQQQ 자리에 덮어씌운 구간 시작', s3, flush=True)
     qc = np.load(f'{BT}/px/QQQ.npz')
     qma = np.convolve(qc['c'].astype(float), np.ones(200) / 200, 'valid')
     qok = dict(zip(qc['d'][199:].tolist(), (qc['c'][199:] >= qma).tolist()))
@@ -581,7 +586,7 @@ def main():
     for b in books.values():
         o_, c_ = px_idx[b.idx]
         b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
-        b.idx_ok = lambda k: bool(q_ok[k])
+        b.idx_ok = (lambda k: bool(ok3[k])) if b.idx == 'NDX3' else (lambda k: bool(q_ok[k]))
     zc = z['c'].astype(float)
     ma200 = np.convolve(zc, np.ones(200) / 200, 'valid')
     spy_ok = np.concatenate([np.ones(199, bool), zc[199:] >= ma200])[i0:]
