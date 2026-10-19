@@ -102,8 +102,24 @@ function tagReasons(s,tag) {
     default: return ['해당 조건 충족',`최근 재무분기 ${s.latest_q||'–'}`];
   }
 }
-function card(s) {
+const signalAge = s => {
+  const h=s.hunbot||{};
+  return !s.data_missing && !h.sc && Number.isInteger(h.lc_age) && h.lc_age>=0 && h.lc_age<3 ? h.lc_age : null;
+};
+const lossKey = s => Number.isFinite(s.metrics?.expected_loss) ? Math.abs(s.metrics.expected_loss) : Infinity;
+const targetKey = s => Number.isFinite(s.metrics?.target_1) ? s.metrics.target_1 : -Infinity;
+// 손절률 낮은 순, 1차 목표 수익률 높은 순
+const byPriority = (a,b) => (lossKey(a)-lossKey(b)) || (targetKey(b)-targetKey(a)) || String(a.code).localeCompare(String(b.code));
+// 신규 -> 추세 강화(▲가 뜬 기존 카드, 고평가 제외, 신호 최근 순) -> 기존. gen(s): 그 종목 시장의 갱신 시각
+function priorityGroups(stocks, gen = () => DATA?.meta?.generated) {
+  const fresh=[],trend=[],rest=[];
+  stocks.forEach(s=>(isNewState(s,gen(s))?fresh:s.state!=='SELL'&&signalAge(s)!=null?trend:rest).push(s));
+  const lk=v=>Number.isFinite(v)?v:Infinity;
+  return [['신규',fresh.sort(byPriority)],['추세 강화',trend.sort((a,b)=>lk(signalAge(a))-lk(signalAge(b))||byPriority(a,b))],['기존',rest.sort(byPriority)]];
+}
+function card(s, generated) {
   const chips=[],h=s.hunbot||{},add=(label,cls='')=>chips.push(badge(label,cls,tagReasons(s,label)));
+  chips.push(badge(s.sector||'미분류','',['야후 기준 섹터 분류']));
   if(s.trend)add(s.trend==='상승추세'?'상승우위':s.trend);
   if(s.rev_q&&s.rev_ttm)add('매출');
   if(s.op_q&&s.op_ttm)add('영익');
@@ -114,10 +130,9 @@ function card(s) {
   if(s.share_warn)add('주식 수 확인 필요','muted');
   if(s.data_missing)add('수집 지연 · 이전 데이터','sell');
   const href=esc(tradingViewUrl(s.code)),m=s.metrics||{},q=s.q||{};
-  const signal=!s.data_missing && !h.sc && Number.isInteger(h.lc_age) && h.lc_age>=0 && h.lc_age<3
-    ? `<span class="buy-signal">▲(D+${h.lc_age})</span> ` : '';
+  const signal=signalAge(s)!=null ? `<span class="buy-signal">▲(D+${h.lc_age})</span> ` : '';
   const maQuote=(label,value)=>`<span class="quote-item">${label} <span class="${signClass(Number.isFinite(s.close)&&Number.isFinite(value)?s.close-value:null)}">${price(value)}</span></span>`;
-  const newMark=isNewState(s)?'<span class="new-marker" aria-label="신규" title="최신 갱신일에 이 분류로 신규 편입">·</span>':'';
+  const newMark=isNewState(s,generated)?'<span class="new-marker" aria-label="신규" title="최신 갱신일에 이 분류로 신규 편입">·</span>':'';
   return `<details class="card${s.obv_signal==='매집'?' bull':''}" data-code="${esc(s.code)}">
     <summary><div class="top"><a class="name" href="${href}" aria-label="${esc(s.name)}${newMark?' 신규':''} TradingView 열기"><span class="name-text">${esc(s.name)}</span>${newMark}</a><div class="ticker-actions"><a class="ticker" href="${href}">${signal}${esc(s.code)}</a><button type="button" class="share-card" aria-label="${esc(s.code)} 카드 JPG 저장" title="카드 JPG 저장" data-html2canvas-ignore><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.7 7.6-4.4m-7.6 7 7.6 4.4"/></svg></button></div></div><div class="chips">${chips.join('')}</div>
     <div class="distances"><span class="quote-item">현재가 ${price(s.close)}<span class="${signClass(s.change_pct)}">(${signed(s.change_pct)})</span></span> · ${maQuote('120일선',s.ma120)} · ${maQuote('200일선',s.ma200)}</div></summary>
@@ -132,20 +147,13 @@ function card(s) {
     <label class="cost-row" data-html2canvas-ignore>매입단가<input type="number" inputmode="decimal" min="0" step="any" class="cost-input" placeholder="가격 입력" aria-label="${esc(s.code)} 매입단가"></label></div>
   </details>`;
 }
-function sectors(stocks) {
-  const groups={};
-  stocks.forEach(s=>(groups[s.sector||'미분류']||=[]).push(s));
-  return Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length||a.localeCompare(b,'ko')).map(g=>{
-    const sorted=groups[g].sort((a,b)=>(b.marcap??-Infinity)-(a.marcap??-Infinity)||a.code.localeCompare(b.code));
-    // 섹터 내 시가총액 내림차순을 유지한다.
-    return `<details class="sector-group"><summary>${esc(g)}<span class="sector-count">${sorted.length}종목</span></summary>${sorted.map(card).join('')}</details>`;
-  }).join('');
+function groupSection(label, stocks) {
+  return stocks.length?`<details class="sector-group"><summary>${esc(label)}<span class="sector-count">${stocks.length}종목</span></summary>${stocks.map(s=>card(s)).join('')}</details>`:'';
 }
-function stateSections(stocks) {
-  return Object.keys(STATES).map(st=>{
-    const rows=stocks.filter(s=>s.state===st);
-    return rows.length?`<section>${sectors(rows)}</section>`:'';
-  }).join('');
+function listHtml(stocks) {
+  const basis=stocks.filter(hasValuationBasis),lack=stocks.filter(s=>!hasValuationBasis(s));
+  return priorityGroups(basis).map(([label,rows])=>groupSection(label,rows)).join('')
+    +groupSection('데이터 부족',priorityGroups(lack).flatMap(([,rows])=>rows));
 }
 function showTagDialog(title,lines) {
   const dialog=$('tag-dialog');
@@ -155,12 +163,8 @@ function showTagDialog(title,lines) {
 }
 function render() {
   if(!DATA) return;
-  const all=DATA.stocks.filter(s=>STATES[s.state]);
-  const selected=tabStocks(all,VALUE),insufficient=selected.filter(s=>!hasValuationBasis(s));
-  const withBasis=selected.filter(hasValuationBasis);
-  $('list').innerHTML=selected.length
-    ? stateSections(withBasis)+(insufficient.length?'<h2 class="unknown-title">가치평가 기준 미달</h2>'+stateSections(insufficient):'')
-    : `<div class="empty">${TAB_LABEL[VALUE]}에 해당하는 종목이 없습니다</div>`;
+  const selected=tabStocks(DATA.stocks.filter(s=>STATES[s.state]),VALUE);
+  $('list').innerHTML=selected.length?listHtml(selected):`<div class="empty">${TAB_LABEL[VALUE]}에 해당하는 종목이 없습니다</div>`;
   $('list').querySelectorAll('a').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
   $('list').querySelectorAll('.tag-info').forEach(button=>button.addEventListener('click',event=>{
     event.preventDefault();event.stopPropagation();
@@ -182,12 +186,32 @@ function render() {
     finally{button.disabled=false;button.removeAttribute('aria-busy');}
   }));
 }
+const getData = m => CACHE[m]||(CACHE[m]=fetch(FILES[m],{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();}).catch(e=>{delete CACHE[m];throw e;}));
+// 요약 이미지: 미국·한국을 섞어 저평가(신규 -> 추세 강화 -> 기존, 데이터 부족 제외), 맨 아래 고평가 신규
+async function summaryHtml() {
+  const sets=(await Promise.allSettled(['us','kr'].map(getData))).map((r,i)=>r.status==='fulfilled'&&r.value.meta?.schema_version===2?[['us','kr'][i],r.value]:null).filter(Boolean);
+  if(!sets.length)throw Error('데이터를 불러오지 못했습니다.');
+  const mk=new Map(),gm=new Map(),all=[];
+  sets.forEach(([m,d])=>d.stocks.forEach(s=>{if(!STATES[s.state]||!hasValuationBasis(s))return;mk.set(s,m);gm.set(s,d.meta.generated);all.push(s);}));
+  const gen=s=>gm.get(s),keep=MKT,keepData=DATA;
+  const draw=s=>{MKT=mk.get(s);return card(s,gen(s));};
+  try{
+    const head=label=>`<h2 class="summary-title">${esc(label)}</h2>`,sub=(label,rows)=>rows.length?`<h3 class="summary-sub">${esc(label)} ${rows.length}</h3>${rows.map(draw).join('')}`:'';
+    const buy=priorityGroups(all.filter(s=>s.state==='BUY'),gen).map(([l,r])=>sub(l,r)).join('');
+    const sell=all.filter(s=>s.state==='SELL'&&isNewState(s,gen(s))).sort(byPriority);
+    const generated=sets.map(([,d])=>d.meta.generated).sort().at(-1);
+    const qqq=$('qqq')&&!$('qqq').hidden?`<span class="${esc($('qqq').className)}">${esc($('qqq').textContent)}</span>`:'';
+    return `<div class="summary"><div class="title-row"><h1>종목 검색기</h1><span class="chip muted">${esc(generated)}</span>${qqq}</div>
+      ${head('저평가')}${buy||'<p class="note">해당 종목 없음</p>'}${sell.length?head('고평가 신규')+sell.map(draw).join(''):''}
+      <p class="note disclaimer">투자 판단의 책임은 본인에게 있습니다</p></div>`;
+  }finally{MKT=keep;DATA=keepData;}
+}
 async function load(m) {
   const id=++requestId;MKT=m;DATA=null;
   document.querySelectorAll('[data-market]').forEach(b=>{const on=b.dataset.market===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));});
   $('banner').innerHTML='';$('list').innerHTML='<div class="empty">불러오는 중…</div>';$('generated').textContent='…';
   try {
-    const d=await(CACHE[m]||(CACHE[m]=fetch(FILES[m],{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();})));
+    const d=await getData(m);
     if(id!==requestId)return;
     $('generated').textContent=d.meta.generated;
     if(d.meta.schema_version!==2){$('banner').innerHTML='<div class="banner">200일선 및 카드 이력 데이터를 갱신 중입니다. 새 데이터가 생성되면 표시됩니다.</div>';$('list').innerHTML='';return;}
@@ -203,6 +227,12 @@ function qqqChip(q) {
     lines:[`QQQ ${usd(q.close)} (${signed(q.change_pct)})`,`200일선 ${usd(q.ma200)}`,`200일선 대비 ${signed(gap)}`,`기준일 ${q.date||'–'}`]};
 }
 if(typeof document!=='undefined'){
+  $('share-all').addEventListener('click',async()=>{
+    const b=$('share-all');if(b.disabled)return;b.disabled=true;b.setAttribute('aria-busy','true');
+    try{await saveHtmlJpg(await summaryHtml(),'summary-'+new Date().toISOString().slice(0,10)+'.jpg');}
+    catch(error){showTagDialog('이미지 저장 실패',[error.message||'다시 시도해 주세요.']);}
+    finally{b.disabled=false;b.removeAttribute('aria-busy');}
+  });
   fetch('qqq.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(q=>{
     const c=qqqChip(q),el=$('qqq');if(!c)return;
     el.textContent=c.text;el.className='chip '+c.cls;el.hidden=false;el.setAttribute('aria-label',c.text+' 설명');
@@ -218,4 +248,4 @@ if(typeof document!=='undefined'){
     VALUE=b.dataset.value;document.querySelectorAll('[data-value]').forEach(x=>{const on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-selected',String(on));});render();
   }));load('us');
 }
-if(typeof module!=='undefined')module.exports={qqqChip,tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons,isNewState};
+if(typeof module!=='undefined')module.exports={qqqChip,tradingViewUrl,esc,bars,card,listHtml,priorityGroups,byPriority,tabStocks,hasValuationBasis,tagReasons,isNewState};

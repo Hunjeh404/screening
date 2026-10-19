@@ -24,15 +24,16 @@ const server=http.createServer((req,res)=>{
  assert.equal(await page.locator('.sector-group[open]').count(),0);
  assert.equal(await page.locator('.card[open]').count(),0);
  assert.equal(await page.locator('.card').count(),4);
- assert.equal(await page.locator('.unknown-title').innerText(),'가치평가 기준 미달');
+ assert.match(await page.locator('.sector-group>summary').last().innerText(),/데이터 부족/);
  await page.locator('.filters>summary').click();
  assert.equal(await page.locator('.filters input[type=number]').count(),0);
  assert.ok(await page.locator('.condition-tag').count()>10);
- assert.match(await page.locator('.sector-group>summary').first().innerText(),/정보기술/);
+ assert.match(await page.locator('.sector-group>summary').first().innerText(),/추세 강화/);
  await page.locator('.sector-group>summary').first().click();
  const first=page.locator('.card').first();
  assert.equal(await first.locator('.ticker').innerText(),'▲(D+1) BBB');
- assert.equal(await first.locator('.chips .chip').first().innerText(),'상승우위');
+ assert.equal(await first.locator('.chips .chip').first().innerText(),'정보기술');
+ assert.equal(await first.locator('.chips .chip').nth(1).innerText(),'상승우위');
  assert.ok(!(await first.locator('.chips').innerText()).includes('Nasdaq'));
  assert.ok(await first.locator('.distances').isVisible());
  assert.ok(!(await first.locator('.distances').innerText()).includes('11.1%'));
@@ -105,12 +106,18 @@ const server=http.createServer((req,res)=>{
  console.log('JPG full-card download:',picture);
 
  await page.locator('[data-value="FAIR"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),1);
- await page.locator('[data-value="HIGH"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/가치평가 기준 미달/);
+ await page.locator('[data-value="HIGH"]').click();assert.equal(await page.locator('.state-heading').count(),0);assert.equal(await page.locator('.card').count(),2);assert.match(await page.locator('#list').textContent(),/데이터 부족/);
  for(const width of [360,820]){
   await page.setViewportSize({width,height:1000});
   const geometry=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth,market:document.querySelector('.markets').getBoundingClientRect().top,value:document.querySelector('.values').getBoundingClientRect().top}));
   assert.equal(geometry.overflow,false);assert.equal(geometry.market,geometry.value);
  }
+ const sharePromise=page.waitForEvent('download');
+ await page.locator('#share-all').click();
+ const shared=await sharePromise;
+ assert.match(shared.suggestedFilename(),/^summary-\d{4}-\d{2}-\d{2}\.jpg$/);
+ const sj=fs.readFileSync(await shared.path());assert.equal(sj[0],0xff);assert.equal(sj[1],0xd8);
+ assert.equal(await page.locator('.export-stage').count(),0);
  await page.locator('#tabKR').click();await page.locator('.sector-group').first().waitFor();
  assert.equal(await page.locator('#tabKR').getAttribute('aria-selected'),'true');
  assert.deepEqual(errors,[]);

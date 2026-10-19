@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {tradingViewUrl,esc,card,sectors,tabStocks,hasValuationBasis}=require('../docs/app.js');
+const {tradingViewUrl,esc,card,priorityGroups,listHtml,tabStocks,hasValuationBasis}=require('../docs/app.js');
 assert.match(tradingViewUrl('ABC','Android'),/^intent:\/\//);
 assert.ok(tradingViewUrl('ABC','Android').includes('package=com.tradingview.tradingviewapp;'));
 assert.ok(tradingViewUrl('ABC','Android').includes('S.browser_fallback_url=https%3A%2F%2F'));
@@ -9,8 +9,14 @@ assert.equal(esc('<script>'), '&lt;script&gt;');
 const s={state:'BUY',code:'ABC',name:'A<script>',market:'NYSE American',latest_q:'2026Q2',valuation:'LOW'};
 const html=card(s);assert.ok(!html.includes('<script>'));assert.ok(!html.includes('details class="card" open'));
 assert.ok(html.includes('예상 손실률'));assert.ok(html.includes('목표 수익률(2차)'));
-const groups=sectors([{...s,sector:'A',marcap:2},{...s,code:'DEF',sector:'A',marcap:4},{...s,sector:'Z',marcap:5}]);
-assert.ok(groups.indexOf('>A<')<groups.indexOf('>Z<'));assert.ok(groups.indexOf('DEF')<groups.indexOf('ABC'));
+const M=(loss,t1)=>({expected_loss:loss,target_1:t1}),G='2026-10-19 08:00';
+const fresh=(code,loss,t1,state='BUY')=>({...s,code,state,metrics:M(loss,t1),history:{transitions:[{to:state,date:'2026-10-19'}]}});
+const old=(code,loss,t1,age=null,state='BUY')=>({...s,code,state,metrics:M(loss,t1),hunbot:{lc_age:age,sc:false}});
+const g=priorityGroups([old('O1',-3,10),fresh('N1',-6,10),old('T2',-2,10,2),fresh('N2',-4,20),old('T0',-7,10,0),old('O2',-3,30),fresh('N3',-4,30)],()=>G);
+assert.deepEqual(g.map(([l,r])=>[l,r.map(x=>x.code)]),[['신규',['N3','N2','N1']],['추세 강화',['T0','T2']],['기존',['O2','O1']]]);
+const gs=priorityGroups([old('S1',-3,10,0,'SELL')],()=>G);assert.deepEqual(gs[1][1],[]);assert.equal(gs[2][1][0].code,'S1');
+const lh=listHtml([{...old('A',-3,10),per:5,per_med5:10,sector:'금융'},{...old('B',-3,10),per:null}]);
+assert.ok(lh.indexOf('>기존<')<lh.indexOf('데이터 부족'));assert.ok(lh.includes('>금융<'));
 console.log('UI link / escaping / collapse / sorting checks passed');
 
 // Old valuation fields may still be present in a batch started before this update.

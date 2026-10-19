@@ -32,3 +32,24 @@ async function saveCardJpg(source) {
     document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
   } finally {stage.remove();}
 }
+// Summary image built from HTML (folded cards). Same renderer and background as a single card.
+async function saveHtmlJpg(html, filename) {
+  if(typeof html2canvas!=='function')throw Error('이미지 저장 도구를 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.');
+  if(document.fonts)await document.fonts.ready;
+  const stage=document.createElement('div');stage.className='export-stage summary-stage';
+  stage.id='export-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+  stage.innerHTML=html;
+  stage.querySelectorAll('[data-html2canvas-ignore]').forEach(el=>el.remove());
+  stage.querySelectorAll('details').forEach(el=>{el.open=false;});
+  document.body.append(stage);
+  try {
+    const canvas=await html2canvas(stage,{
+      scale:2,backgroundColor:getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+      logging:false,useCORS:true,scrollX:0,scrollY:0,
+      onclone:doc=>{const copy=doc.getElementById(stage.id);copy.style.position='absolute';copy.style.left='0';copy.style.top='0';}
+    });
+    const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('JPG 생성에 실패했습니다.')),'image/jpeg',.92));
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  } finally {stage.remove();}
+}
