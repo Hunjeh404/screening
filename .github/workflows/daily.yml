@@ -40,13 +40,16 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
           node tests/test_ui.cjs
+      # 코드만 올린 경우(push)에는 테스트만 하고 데이터 갱신은 하지 않는다
       - uses: actions/cache/restore@v4
+        if: github.event_name != 'push'
         with:
           path: data/cache
           key: cache-${{ github.run_id }}
           restore-keys: cache-
       - name: US data and history
         id: us
+        if: github.event_name != 'push'
         continue-on-error: true
         timeout-minutes: 35
         run: |
@@ -60,6 +63,7 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       - name: Korea data and history
         id: kr
+        if: github.event_name != 'push'
         continue-on-error: true
         timeout-minutes: 240
         run: |
@@ -71,12 +75,12 @@ jobs:
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
       - uses: actions/cache/save@v4
-        if: always()
+        if: always() && github.event_name != 'push'
         with:
           path: data/cache
           key: cache-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Report incomplete markets
-        if: always()
+        if: always() && github.event_name != 'push'
         env:
           US_RESULT: ${{ steps.us.outcome }}
           KR_RESULT: ${{ steps.kr.outcome }}
