@@ -30,8 +30,7 @@ _T = dict(_B, idx='TQQQ', idx_ma=True)
 _O = dict(_T, idx_open=True)
 _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
-_V = {'open': ('우수전략', True, _O),
-      'cap': ('TQQQ 최대 50%', True, dict(_O, idx_cap=.5))}
+_V = {'open': ('우수전략', True, _O)}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -565,6 +564,76 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
     return lines
 
 
+SEL_VARIANTS = {None: '전체 기준', 'all': '실적 신고가만', 'fund': '실적 신고가 + 기술적 조건(가치·재무 제외)',
+                'per': 'PER 조건 제외', 'ma': '이평선 조건 제외', 'vol': '변동성 조건 제외', 'obv': 'OBV 조건 제외'}
+
+
+def sel_elig(s, drop=None):
+    """buy_eligible과 같은 판정에서 조건 하나를 뺀 것 (drop=None이면 원래 판정과 같음)"""
+    pos_ = cr.positive
+    c, a, b = (s.get(x) for x in ('close', 'ma120', 'ma200'))
+    if not all(pos_(x) for x in (c, a, b)) or not s.get('record'):
+        return False
+    if drop == 'all':
+        return True
+    if drop != 'ma' and not (c >= a or c >= b):
+        return False
+    if drop != 'vol' and not s.get('vol_down'):
+        return False
+    if drop != 'obv' and s.get('obv_signal') == '이탈':
+        return False
+    if drop == 'fund':
+        return True
+    if s.get('fin'):
+        return (pos_(s.get('pbr')) and s['pbr'] <= 1 and cr.valid(s.get('roe3')) and s['roe3'] >= 10
+                and pos_(s.get('op_ttm_value')) and cr.profit_holding(s))
+    if cr.loss_turnaround(s):
+        return cr.op_improving(s) and cr.fscore_ok(s)
+    return cr.profit_holding(s) and (cr.valid(s.get('roe3')) and s['roe3'] >= 15 and cr.valid(s.get('debt'))
+            and s['debt'] <= 50 and s.get('profit_years', 0) >= 5
+            and (drop == 'per' or (pos_(s.get('per')) and pos_(s.get('per_med5')) and s['per'] < s['per_med5'])))
+
+
+def selection_report(events, cos, horizons=(20, 60, 120)):
+    """새로 충족한 다음 날 시가에 사서 손절 없이 h거래일 보유했을 때 수익률을 QQQ·전체 종목 평균과 비교"""
+    T = len(CAL)
+    O = np.array([co['a']['o'] for co in cos], float)
+    C = np.array([co['a']['c'] for co in cos], float)
+    qo, qc = QQQ_OC
+    uni = {}
+    rows = []
+    for v, ci, k, path in events:
+        for h in horizons:
+            e, x = k + 1, k + h
+            if x >= T or not (np.isfinite(O[ci, e]) and np.isfinite(C[ci, x]) and O[ci, e] > 0):
+                continue
+            if (e, x) not in uni:
+                with np.errstate(all='ignore'):
+                    r = C[:, x] / O[:, e] - 1
+                uni[(e, x)] = float(np.nanmean(r[np.isfinite(r)]))
+            rows.append((v, path, h, C[ci, x] / O[ci, e] - 1, qc[x] / qo[e] - 1, uni[(e, x)], day_str(CAL[k])[:4]))
+    df = pd.DataFrame(rows, columns=['v', 'path', 'h', 'ret', 'qqq', 'uni', 'year'])
+    out = ['손절 없이 h거래일 보유 (다음 날 시가 매수 -> h거래일째 종가). 평균은 %, 이김은 QQQ보다 높은 비율',
+           '구분 | 보유일 | 건수 | 평균 | 중앙값 | 상승 | QQQ | 전체종목 | QQQ대비 | 전체대비 | QQQ 이김']
+    def line(name, g, h):
+        g = g[g.h == h]
+        if len(g):
+            out.append(f"{name} | {h} | {len(g)} | {g.ret.mean()*100:+.1f} | {g.ret.median()*100:+.1f} | {(g.ret>0).mean()*100:.0f}% | "
+                       f"{g.qqq.mean()*100:+.1f} | {g.uni.mean()*100:+.1f} | {(g.ret-g.qqq).mean()*100:+.1f} | "
+                       f"{(g.ret-g.uni).mean()*100:+.1f} | {(g.ret>g.qqq).mean()*100:.0f}%")
+    for v, name in SEL_VARIANTS.items():
+        for h in horizons:
+            line(name, df[df.v == v], h)
+    for p in ('일반', '금융', '턴어라운드'):
+        for h in horizons:
+            line('전체 기준 · ' + p, df[(df.v == None) & (df.path == p)], h)   # noqa: E711
+    full = df[(df.v == None) & (df.h == 60)]   # noqa: E711
+    for y, g in full.groupby('year'):
+        line(f'전체 기준 · {y}년', g, 60)
+    open('docs/backtest_selection.txt', 'w', encoding='utf-8').write('\n'.join(out) + '\n')
+    print('\n'.join(out), flush=True)
+
+
 def load_sectors(tickers):
     """야후 섹터(현재 분류를 과거에도 씀). 일일 캐시 + 백테스트 캐시, 없으면 조회해 data/bt/sector.json에 저장"""
     import time
@@ -621,7 +690,8 @@ def main():
     index = {co['t']: ci for ci, co in enumerate(cos)}
     cur, rec, started = [None] * len(cos), set(), False
     quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
-    histories = {ma: {} for ma in {v[1] for v in STRATEGIES.values()}}
+    histories = {ma: {} for ma in {v[1] for v in STRATEGIES.values()} | {True}}
+    sel_events, sel_prev, sel_last = [], set(), {}
     books = {key: Book(**{'exits': 'ts12', **kw}) for key, (_, _, kw) in STRATEGIES.items()}
     for b in books.values():
         b.sector = sectors
@@ -696,9 +766,24 @@ def main():
                 if STRATEGIES[key][1] == ma:
                     b.mkt_ok = bool(spy_ok[k])
                     b.evening(k, bar, cards, newly)
+            if ma:   # 종목선정 진단: 조건별로 '새로 충족'된 날을 모은다 (같은 종목은 20거래일 안에 다시 세지 않음)
+                now = set()
+                for st in stocks:
+                    ci = index.get(st['code'])
+                    if ci is None:
+                        continue
+                    for v in SEL_VARIANTS:
+                        if sel_elig(st, v):
+                            now.add((v, ci))
+                            if (v, ci) not in sel_prev and k - sel_last.get((v, ci), -99) >= 20:
+                                sel_last[(v, ci)] = k
+                                path = '금융' if st.get('fin') else '턴어라운드' if cr.loss_turnaround(st) else '일반'
+                                sel_events.append((v, ci, k, path))
+                sel_prev = now
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
     cr.USE_MA = True
+    selection_report(sel_events, cos)
     for line in report({STRATEGIES[key][0]: b for key, b in books.items()}, spy, CAL):
         print('::warning title=backtest::' + line)
 

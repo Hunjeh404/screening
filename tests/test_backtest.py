@@ -299,6 +299,17 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(b.spy_sh * 100, .5)
         self.assertAlmostEqual(b.cash, .5)
 
+    def test_sel_elig_matches_buy_eligible(self):
+        import card_rules as cr
+        base = {'close': 100, 'ma120': 90, 'ma200': 95, 'record': True, 'vol_down': True, 'obv_signal': '중립',
+                'roe3': 20, 'debt': 30, 'profit_years': 6, 'per': 10, 'per_med5': 15}
+        for extra in ({}, {'per': 20}, {'close': 80}, {'vol_down': False}, {'obv_signal': '이탈'}, {'fin': True, 'pbr': .8, 'op_ttm_value': 5}):
+            st = {**base, **extra}
+            self.assertEqual(bt.sel_elig(st), cr.buy_eligible(st), extra)
+        self.assertTrue(bt.sel_elig({**base, 'per': 20}, 'per'))
+        self.assertTrue(bt.sel_elig({**base, 'close': 80}, 'ma'))
+        self.assertTrue(bt.sel_elig({**base, 'roe3': 1}, 'fund'))
+
 
 if __name__ == '__main__':
     unittest.main()
