@@ -21,7 +21,8 @@ const server=http.createServer((req,res)=>{
  await page.locator('.sector-group').first().waitFor();
  assert.equal(await page.locator('h1').innerText(),'종목 검색기');
  assert.equal(await page.locator('.filters').getAttribute('open'),null);
- assert.equal(await page.locator('.sector-group[open]').count(),0);
+ assert.equal(await page.locator('.sector-group[open]').count(),0);   // 신규가 없는 화면
+ assert.equal(await page.locator('.sector-group>summary').filter({hasText:'신규'}).count(),0);
  assert.equal(await page.locator('.card[open]').count(),0);
  assert.equal(await page.locator('.card').count(),4);
  assert.match(await page.locator('.sector-group>summary').last().innerText(),/데이터 부족/);

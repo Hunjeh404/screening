@@ -148,12 +148,12 @@ function card(s, generated) {
   </details>`;
 }
 function groupSection(label, stocks) {
-  return stocks.length?`<details class="sector-group"><summary>${esc(label)}<span class="sector-count">${stocks.length}종목</span></summary>${stocks.map(s=>card(s)).join('')}</details>`:'';
+  return stocks.length?`<details class="sector-group"${label==='신규'?' open':''}><summary>${esc(label)}<span class="sector-count">${stocks.length}종목</span></summary>${stocks.map(s=>card(s)).join('')}</details>`:'';
 }
-function listHtml(stocks) {
+function listHtml(stocks, gen) {
   const basis=stocks.filter(hasValuationBasis),lack=stocks.filter(s=>!hasValuationBasis(s));
-  return priorityGroups(basis).map(([label,rows])=>groupSection(label,rows)).join('')
-    +groupSection('데이터 부족',priorityGroups(lack).flatMap(([,rows])=>rows));
+  return priorityGroups(basis,gen).map(([label,rows])=>groupSection(label,rows)).join('')
+    +groupSection('데이터 부족',priorityGroups(lack,gen).flatMap(([,rows])=>rows));
 }
 function showTagDialog(title,lines) {
   const dialog=$('tag-dialog');
@@ -187,18 +187,21 @@ function render() {
   }));
 }
 const getData = m => CACHE[m]||(CACHE[m]=fetch(FILES[m],{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();}).catch(e=>{delete CACHE[m];throw e;}));
-// 요약 이미지: 미국·한국을 섞어 저평가(신규 -> 추세 강화 -> 기존, 데이터 부족 제외), 맨 아래 고평가 신규
+// 요약 이미지: 미국·한국을 섞어 저평가(신규 -> 추세 강화 -> 기존 -> 데이터 부족), 맨 아래 고평가 신규(데이터 부족은 뒤에)
 async function summaryHtml() {
   const sets=(await Promise.allSettled(['us','kr'].map(getData))).map((r,i)=>r.status==='fulfilled'&&r.value.meta?.schema_version===2?[['us','kr'][i],r.value]:null).filter(Boolean);
   if(!sets.length)throw Error('데이터를 불러오지 못했습니다.');
   const mk=new Map(),gm=new Map(),all=[];
-  sets.forEach(([m,d])=>d.stocks.forEach(s=>{if(!STATES[s.state]||!hasValuationBasis(s))return;mk.set(s,m);gm.set(s,d.meta.generated);all.push(s);}));
+  sets.forEach(([m,d])=>d.stocks.forEach(s=>{if(!STATES[s.state])return;mk.set(s,m);gm.set(s,d.meta.generated);all.push(s);}));
   const gen=s=>gm.get(s),keep=MKT,keepData=DATA;
   const draw=s=>{MKT=mk.get(s);return card(s,gen(s));};
   try{
     const head=label=>`<h2 class="summary-title">${esc(label)}</h2>`,sub=(label,rows)=>rows.length?`<h3 class="summary-sub">${esc(label)} ${rows.length}</h3>${rows.map(draw).join('')}`:'';
-    const buy=priorityGroups(all.filter(s=>s.state==='BUY'),gen).map(([l,r])=>sub(l,r)).join('');
-    const sell=all.filter(s=>s.state==='SELL'&&isNewState(s,gen(s))).sort(byPriority);
+    const flat=rows=>priorityGroups(rows,gen).flatMap(([,r])=>r),buyAll=all.filter(s=>s.state==='BUY');
+    const buy=priorityGroups(buyAll.filter(hasValuationBasis),gen).map(([l,r])=>sub(l,r)).join('')
+      +sub('데이터 부족',flat(buyAll.filter(s=>!hasValuationBasis(s))));
+    const newSell=all.filter(s=>s.state==='SELL'&&isNewState(s,gen(s)));
+    const sell=[...newSell.filter(hasValuationBasis).sort(byPriority),...newSell.filter(s=>!hasValuationBasis(s)).sort(byPriority)];
     const generated=sets.map(([,d])=>d.meta.generated).sort().at(-1);
     const qqq=$('qqq')&&!$('qqq').hidden?`<span class="${esc($('qqq').className)}">${esc($('qqq').textContent)}</span>`:'';
     return `<div class="summary"><div class="title-row"><h1>종목 검색기</h1><span class="chip muted">${esc(generated)}</span>${qqq}</div>

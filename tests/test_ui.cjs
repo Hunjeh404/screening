@@ -16,7 +16,8 @@ const g=priorityGroups([old('O1',-3,10),fresh('N1',-6,10),old('T2',-2,10,2),fres
 assert.deepEqual(g.map(([l,r])=>[l,r.map(x=>x.code)]),[['신규',['N3','N2','N1']],['추세 강화',['T0','T2']],['기존',['O2','O1']]]);
 const gs=priorityGroups([old('S1',-3,10,0,'SELL')],()=>G);assert.deepEqual(gs[1][1],[]);assert.equal(gs[2][1][0].code,'S1');
 const lh=listHtml([{...old('A',-3,10),per:5,per_med5:10,sector:'금융'},{...old('B',-3,10),per:null}]);
-assert.ok(lh.indexOf('>기존<')<lh.indexOf('데이터 부족'));assert.ok(lh.includes('>금융<'));
+assert.ok(lh.indexOf('>기존<')<lh.indexOf('데이터 부족'));
+const ln=listHtml([{...fresh('N',-3,10),per:5,per_med5:10}],()=>G);assert.ok(ln.includes('<details class="sector-group" open>'));assert.ok(!lh.includes('sector-group" open'));assert.ok(lh.includes('>금융<'));
 console.log('UI link / escaping / collapse / sorting checks passed');
 
 // Old valuation fields may still be present in a batch started before this update.
