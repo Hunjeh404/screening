@@ -207,6 +207,20 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(b.curve[-1], .2 + .88)
         self.assertEqual(b.cash, 0)
 
+    def test_signal_only_and_wait_signal(self):
+        C = lambda **kw: {'A': card('A', **kw)}
+        b = bt.Book(5, cost=0, entry='sigonly')                              # 카드 때 ▲ 없으면 안 삼
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 101, 99, 100)}, C(age=0), []), ({'A': (100, 101, 99, 100)}, C(), [])])
+        self.assertEqual(b.pos, {})
+        b = bt.Book(5, cost=0, entry='sigonly')                              # 있으면 30%
+        self.run_days(b, [({}, C(age=1), ['A']), ({'A': (100, 101, 99, 100)}, C(), [])])
+        self.assertAlmostEqual(b.pos['A']['spent'], .3)
+        b = bt.Book(5, cost=0, entry='wait_sig')                             # 초강세는 무시, ▲ 뜬 다음 날 30%
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 101, 99, 100)}, C(bull=True), []),
+                          ({'A': (100, 101, 99, 100)}, C(age=0), []), ({'A': (103, 104, 102, 103)}, C(), [])])
+        self.assertEqual(b.pos['A']['entry'], 103)
+        self.assertAlmostEqual(b.pos['A']['spent'], .3)
+
 
 if __name__ == '__main__':
     unittest.main()

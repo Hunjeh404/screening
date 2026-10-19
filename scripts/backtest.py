@@ -25,10 +25,10 @@ START = '2013-01-01'
 COST = .001            # 편도 거래 비용
 # 전략: (이름, 이평선 조건 사용, Book 설정). 모두 공시지연 X·1차 50%/2차 25% TS, 손절선 항상 유지, 초강세에 TS 쉼
 # 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
-_V = {'base': ('우수전략', True, dict()), 'w30': ('처음 30%·추가 없음', True, dict(first=.3, add=0)),
-      'noma': ('이평선 X', False, dict())}
-STRATEGIES = {k + e: (n + en, ma, {**kw, **ek}) for k, (n, ma, kw) in _V.items()
-              for e, (en, ek) in (('', ('', {})), ('_s', (' · 남는 돈 SPY', dict(spy=True))))}
+_V = {'base_s': ('우수전략 · 남는 돈 SPY', True, dict(spy=True)),
+      'sig_s': ('카드 때 ▲ 있을 때만 30% · 남는 돈 SPY', True, dict(spy=True, entry='sigonly')),
+      'wait_s': ('▲ 뜰 때까지 기다렸다 30% · 남는 돈 SPY', True, dict(spy=True, entry='wait_sig'))}
+STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
@@ -331,10 +331,10 @@ class Book:
                                'levels': None, 'label': '▲시가매수'})
             else:
                 self.pending[t]['added'] = signal(t)
-        if self.entry == 'wait':   # 기다리는 종목: 매수 카드에서 빠지면 제외, ▲·초강세 확인 시 다음 날 시가 20%
+        if self.entry in ('wait', 'wait_sig'):   # 기다리는 종목(wait_sig는 ▲만 기다림): 매수 카드에서 빠지면 제외, ▲·초강세 확인 시 다음 날 시가 20%
             self.watch = {t for t in self.watch | set(newly) if t not in self.pos
                           and cards.get(t, {}).get('state') == 'BUY' and cards[t]['metrics']['expected_loss'] is not None}
-            go = [cards[t] for t in self.watch if signal(t) or cards[t]['hunbot'].get('super_bull')]
+            go = [cards[t] for t in self.watch if signal(t) or (self.entry == 'wait' and cards[t]['hunbot'].get('super_bull'))]
             newly = [s['code'] for s in go]
         waiting = {o['t'] for o in orders if o['side'] == 'buy'} | set(self.pending)
         free = self.slots - (len(self.pos) - len(sells)) - len(waiting - set(self.pos))
@@ -343,9 +343,9 @@ class Book:
                      key=lambda s: (abs(s['metrics']['expected_loss']), -s['metrics']['target_1']))
         for s in new[:max(free, 0)]:
             added, m, c = signal(s['code']), s['metrics'], s.get('close')
-            if self.regime and not self.mkt_ok:
+            if (self.regime and not self.mkt_ok) or (self.entry == 'sigonly' and not added):
                 continue
-            if self.entry in ('open', 'wait'):
+            if self.entry in ('open', 'wait', 'wait_sig', 'sigonly'):
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
                                'added': added, 'metrics': m})
             elif self.entry == 'limitA' and added:
@@ -474,7 +474,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>규칙과 한계</h2><ul>
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
-<li>처음 30%·추가 없음: 매수 카드에 오르면 30%를 한 번에 사고 ▲ 추가 매수 없음(현금이 모자라면 남은 만큼). 이평선 X: 우수전략에서 매수·매도의 이평선 조건만 뺌.</li>
+<li>카드 때 ▲ 있을 때만: 매수 카드에 새로 오른 날 훈봇 ▲(3거래일 이내)가 있으면 다음 날 시가 30%, 없으면 사지 않음. ▲ 뜰 때까지 기다림: 매수 카드에 오른 뒤 ▲가 뜨면 다음 날 시가 30%(기다리는 종목은 5종목에 미포함, 매수 카드에서 빠지면 취소).</li>
 <li>남는 돈 SPY: 남는 현금은 그날 종가에 SPY를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 SPY를 팖(편도 비용 동일).</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
