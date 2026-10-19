@@ -7,14 +7,15 @@ import os
 
 import numpy as np
 
-PATH, FEE, COST, YEARS = 'data/bt/ndx.npz', .0095 / 252, .001, 10
+FEE, COST, YEARS = .0095 / 252, .001, 10
 
 
-def load():
+def load(sym='^NDX'):
+    PATH = f'data/bt/{sym.strip("^").lower()}.npz'
     if not os.path.exists(PATH):
         import yfinance as yf
-        x = yf.download('^NDX', start='1985-01-01', auto_adjust=False, progress=False)
-        x = x.dropna(subset=[('Close', '^NDX')]) if hasattr(x.columns, 'levels') else x.dropna(subset=['Close'])
+        x = yf.download(sym, start='1985-01-01', auto_adjust=False, progress=False)
+        x = x.dropna(subset=[('Close', sym)]) if hasattr(x.columns, 'levels') else x.dropna(subset=['Close'])
         c = np.asarray(x['Close'], float).ravel()
         o = np.asarray(x['Open'], float).ravel()
         d = ((x.index.values.astype('datetime64[D]') - np.datetime64('1970-01-01')).astype(int))
@@ -23,13 +24,13 @@ def load():
     return z['d'], z['o'], z['c']
 
 
-def synth(o, c):
-    """합성 3배 (시가, 종가). 지수 시가가 없거나 이상하면 전날 종가로 본다."""
+def synth(o, c, lev=3, fee=FEE):
+    """합성 lev배 (시가, 종가). 지수 시가가 없거나 이상하면 전날 종가로 본다."""
     prev = np.r_[c[0], c[:-1]]
     o = np.where(np.isfinite(o) & (o > 0) & (np.abs(o / prev - 1) < .2), o, prev)
-    r = np.r_[0, c[1:] / c[:-1] - 1] * 3 - FEE
+    r = np.r_[0, c[1:] / c[:-1] - 1] * lev - fee
     C = np.cumprod(np.maximum(1 + r, 1e-9))
-    O = np.r_[C[0], C[:-1]] * np.maximum(1 + 3 * (o / prev - 1), 1e-9)
+    O = np.r_[C[0], C[:-1]] * np.maximum(1 + lev * (o / prev - 1), 1e-9)
     return O, C
 
 
@@ -67,13 +68,20 @@ def worst(curve, n):
     return i, r[i] - 1
 
 
-def path():
-    """최악 10년(3배+200일선 규칙 기준) 시작일부터의 (시가, 종가, 200일선 위 여부), 시작일"""
+def path(name='NDX3'):
+    """최악 10년(3배+200일선 규칙 기준) 시작일부터의 (시가, 종가, 나스닥100 200일선 위 여부), 시작일.
+    name: NDX3(합성 3배) NDX1(나스닥100 1배, 보수 0.2%) SPX1(S&P500 1배, 보수 0.1%) - 같은 날짜부터"""
     d, o, c = load()
     O, C = synth(o, c)
     ok = ma_ok(c)
     i, _ = worst(rule(O, C, ok)[200:], YEARS * 252)
     i += 200
+    if name == 'NDX1':
+        O, C = synth(o, c, 1, .002 / 252)
+    elif name == 'SPX1':
+        d2, o2, c2 = load('^GSPC')
+        j = np.clip(np.searchsorted(d2, d, 'right') - 1, 0, None)   # 나스닥100 거래일에 맞춤
+        O, C = synth(o2[j], c2[j], 1, .001 / 252)
     return O[i:], C[i:], ok[i:], day(d[i])
 
 
