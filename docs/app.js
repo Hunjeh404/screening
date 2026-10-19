@@ -153,7 +153,7 @@ function groupSection(label, stocks) {
 function listHtml(stocks, gen) {
   const basis=stocks.filter(hasValuationBasis),lack=stocks.filter(s=>!hasValuationBasis(s));
   return priorityGroups(basis,gen).map(([label,rows])=>groupSection(label,rows)).join('')
-    +groupSection('데이터 부족',priorityGroups(lack,gen).flatMap(([,rows])=>rows));
+    +groupSection('가치평가 불가',priorityGroups(lack,gen).flatMap(([,rows])=>rows));
 }
 function showTagDialog(title,lines) {
   const dialog=$('tag-dialog');
@@ -187,7 +187,7 @@ function render() {
   }));
 }
 const getData = m => CACHE[m]||(CACHE[m]=fetch(FILES[m],{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();}).catch(e=>{delete CACHE[m];throw e;}));
-// 요약 이미지: 미국·한국을 섞어 저평가(신규 -> 추세 강화 -> 기존 -> 데이터 부족), 맨 아래 고평가 신규(데이터 부족은 뒤에)
+// 요약 이미지: 미국·한국을 섞어 저평가(신규 -> 추세 강화 -> 기존 -> 가치평가 불가), 맨 아래 고평가 신규(가치평가 불가은 뒤에)
 async function summaryHtml() {
   const sets=(await Promise.allSettled(['us','kr'].map(getData))).map((r,i)=>r.status==='fulfilled'&&r.value.meta?.schema_version===2?[['us','kr'][i],r.value]:null).filter(Boolean);
   if(!sets.length)throw Error('데이터를 불러오지 못했습니다.');
@@ -199,7 +199,7 @@ async function summaryHtml() {
     const head=label=>`<h2 class="summary-title">${esc(label)}</h2>`,sub=(label,rows)=>rows.length?`<h3 class="summary-sub">${esc(label)} ${rows.length}</h3>${rows.map(draw).join('')}`:'';
     const flat=rows=>priorityGroups(rows,gen).flatMap(([,r])=>r),buyAll=all.filter(s=>s.state==='BUY');
     const buy=priorityGroups(buyAll.filter(hasValuationBasis),gen).map(([l,r])=>sub(l,r)).join('')
-      +sub('데이터 부족',flat(buyAll.filter(s=>!hasValuationBasis(s))));
+      +sub('가치평가 불가',flat(buyAll.filter(s=>!hasValuationBasis(s))));
     const newSell=all.filter(s=>s.state==='SELL'&&isNewState(s,gen(s)));
     const sell=[...newSell.filter(hasValuationBasis).sort(byPriority),...newSell.filter(s=>!hasValuationBasis(s)).sort(byPriority)];
     const generated=sets.map(([,d])=>d.meta.generated).sort().at(-1);
