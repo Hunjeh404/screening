@@ -70,6 +70,6 @@ for a, b in ((day(start), None), ('2000-03-10', '2010-03-19'), ('2007-10-01', '2
         yrs = (ib - ia) / 252
         mdd = (seg / np.maximum.accumulate(seg) - 1).min()
         lines.append(f'  {k}: 연 {((seg[-1] / seg[0]) ** (1 / yrs) - 1) * 100:+.1f}% · MDD {mdd * 100:.0f}% · '
-                     f'누적 {(seg[-1] / seg[0] - 1) * 100:+.0f}%' + (f' · 전환 {n}회(전체)' if a == day(start) else ''))
+                     f'누적 {(seg[-1] / seg[0] - 1) * 100:+.2f}%' + (f' · 전환 {n}회(전체)' if a == day(start) else ''))
 open('out.txt', 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 print('\n'.join(lines))
