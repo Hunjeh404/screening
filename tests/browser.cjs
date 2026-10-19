@@ -38,9 +38,9 @@ const server=http.createServer((req,res)=>{
  assert.ok(!(await first.locator('.chips').innerText()).includes('Nasdaq'));
  assert.ok(await first.locator('.distances').isVisible());
  assert.ok(!(await first.locator('.distances').innerText()).includes('11.1%'));
- await first.locator('[data-tag="초강세"]').click();
+ await first.locator('[data-tag="강세"]').click();
  assert.equal(await first.getAttribute('open'),null);
- assert.equal(await page.locator('#tag-title').innerText(),'초강세');
+ assert.equal(await page.locator('#tag-title').innerText(),'강세');
  assert.match(await page.locator('#tag-reasons').innerText(),/55.0/);
  await page.locator('#tag-close').click();
  await first.locator('[data-tag="패닉셀"]').click();
