@@ -30,10 +30,10 @@ _T = dict(_B, idx='TQQQ', idx_ma=True)
 _O = dict(_T, idx_open=True)
 _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
-_P = dict(_O, idx_cap=.5)
-_V = {'cap': ('0 지금 규칙 · TQQQ 최대 50%', True, _P),
-      'cap_ta': ('1 턴어라운드만 · TQQQ 최대 50%', True, dict(_P, only_ta=True)),
-      'cap_tq': ('2 종목 없이 TQQQ 50% · 나머지 현금', True, dict(_P, slots=0))}
+_V = {'c50': ('현금 먼저 · TQQQ 최대 50%', True, dict(_O, idx_cap=.5)),
+      'c30': ('현금 먼저 · TQQQ 최대 30%', True, dict(_O, idx_cap=.3)),
+      't50': ('TQQQ 먼저 · TQQQ 최대 50%', True, dict(_O, idx_cap=.5, fund='tqqq')),
+      't30': ('TQQQ 먼저 · TQQQ 최대 30%', True, dict(_O, idx_cap=.3, fund='tqqq'))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -189,7 +189,9 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False):
+                 only_ta=False, fund='cash'):
+        # fund: 종목 매수 자금을 'cash' 현금 먼저(모자라면 TQQQ 매도), 'tqqq' TQQQ 먼저(종목 몫만큼 TQQQ 목표 비중을 줄임)
+        self.fund = fund
         # only_ta: 적자 턴어라운드 경로 종목만 산다
         self.only_ta = only_ta
         # ta_mode(적자 턴어라운드 경로): 'normal' 손절·목표를 일반 기업과 같은 폭으로, 'card' 손절·TS 없이 매도 카드에서만 매도
@@ -287,9 +289,9 @@ class Book:
                 else:
                     self._sell(t, float('inf'), op, k, o['why'])
         need = sum(o['value'] for o in orders if o['side'] == 'buy' and bar(o['t']))
-        if self.spy and self.spy_sh and need > self.cash:
+        if self.spy and self.spy_sh and (need > self.cash or (self.fund == 'tqqq' and need > 0)):
             op = self.spy_bar(k)[0]
-            q = min(self.spy_sh, (need - self.cash) / (op * (1 - self.cost)))
+            q = min(self.spy_sh, (need if self.fund == 'tqqq' else need - self.cash) / (op * (1 - self.cost)))
             self.spy_sh -= q
             self.cash += q * op * (1 - self.cost)
         for o in orders:
@@ -301,7 +303,8 @@ class Book:
                 self.cash += self.spy_sh * op * (1 - self.cost)
                 self.spy_sh = 0.0
             elif self.cash > 0:
-                amt = self.cash if self.idx_cap is None else min(self.cash, max(0.0, self.idx_cap * self.last_eq - self.spy_sh * op))
+                held = sum(p['sh'] * p['last'] for p in self.pos.values()) if self.fund == 'tqqq' else 0.0
+                amt = self.cash if self.idx_cap is None else min(self.cash, max(0.0, self.idx_cap * self.last_eq - held - self.spy_sh * op))
                 self.spy_sh += amt / (op * (1 + self.cost))
                 self.cash -= amt
         for t in list(self.pending):   # 지정가: 장중 저가가 지정가에 닿으면 그 가격(갭 하락이면 시가)
@@ -573,7 +576,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>TQQQ 최대 50%: TQQQ 평가액이 총자산의 50%를 넘지 않게 사고 나머지는 현금(QQQ 200일선 아래면 전부 현금). 턴어라운드만: 적자 턴어라운드 경로 종목만 매수(일반 기업·금융업은 매수하지 않음). 종목 없이: 종목 매매를 하지 않음.</li>
+<li>TQQQ 최대 50%·30%: TQQQ 평가액을 총자산의 그 비율까지만 보유하고 나머지는 현금(QQQ 200일선 아래면 전부 현금). 현금 먼저: 종목은 현금으로 사고 모자랄 때만 TQQQ를 팔며, TQQQ는 상한까지 채움. TQQQ 먼저: 종목은 TQQQ를 팔아 사고, TQQQ 목표는 상한에서 보유 종목 평가액을 뺀 만큼(종목+TQQQ가 상한 안).</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>

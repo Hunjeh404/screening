@@ -331,6 +331,15 @@ class BookTest(unittest.TestCase):
         self.run_days(b, [({}, cards, ['T', 'G']), ({t: (10, 10, 10, 10) for t in 'TG'}, cards, [])])
         self.assertEqual(list(b.pos), ['T'])
 
+    def test_fund_tqqq_first(self):
+        for fund, spy_after in (('cash', .5), ('tqqq', .3)):
+            b = bt.Book(5, cost=0, add=0, spy=True, idx_ma=True, idx_open=True, idx_cap=.5, fund=fund)
+            b.spy_bar, b.idx_ok = (lambda k: (100, 100)), (lambda k: True)
+            self.run_days(b, [({}, {}, []), ({}, {'A': card('A')}, ['A']), ({'A': (10, 10, 10, 10)}, {'A': card('A')}, []),
+                              ({'A': (10, 10, 10, 10)}, {'A': card('A')}, [])])
+            self.assertAlmostEqual(b.pos['A']['spent'], .2)
+            self.assertAlmostEqual(b.spy_sh * 100, spy_after, msg=fund)
+
 
 if __name__ == '__main__':
     unittest.main()
