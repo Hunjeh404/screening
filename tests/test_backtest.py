@@ -249,6 +249,21 @@ class BookTest(unittest.TestCase):
         self.assertEqual(b.spy_sh * 99, b.curve[2])                          # 다시 위: 종가 99에 매수
         self.assertAlmostEqual(b.curve[2], .9)
 
+    def test_keep_tenth_when_profitable(self):
+        sell = lambda px: ({'A': (px, px, px, px)}, {'A': card('A', state='SELL')}, [])
+        hold = lambda px: ({'A': (px, px, px, px)}, {'A': card('A')}, [])
+        b = bt.Book(5, cost=0, add=0, keep=.1)
+        self.run_days(b, [({}, {'A': card('A')}, ['A']), hold(100), sell(105), hold(105),
+                          ({'A': (200, 200, 200, 200)}, {'A': card('A')}, ['A'])])   # 재매수는 별도
+        q = .2 / 100
+        self.assertEqual(len(b.core), 1)
+        self.assertAlmostEqual(b.core[0]['sh'], q * .1)
+        self.assertAlmostEqual(b.closed[0]['ret'], .05)
+        self.assertAlmostEqual(b.curve[-1], 1 + q * .9 * 5 + q * .1 * 100)            # 묻은 물량은 200으로 평가
+        b = bt.Book(5, cost=0, add=0, keep=.1)                                       # 손실이면 전량 매도
+        self.run_days(b, [({}, {'A': card('A')}, ['A']), hold(100), sell(99), hold(99)])
+        self.assertEqual((b.core, b.pos), ([], {}))
+
 
 if __name__ == '__main__':
     unittest.main()
