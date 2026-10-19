@@ -564,13 +564,14 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
     return lines
 
 
-SEL_VARIANTS = {None: '전체 기준', 'all': '실적 신고가만', 'fund': '실적 신고가 + 기술적 조건(가치·재무 제외)',
+SEL_VARIANTS = {'base': '전체 기준', 'all': '실적 신고가만', 'fund': '실적 신고가 + 기술적 조건(가치·재무 제외)',
                 'per': 'PER 조건 제외', 'ma': '이평선 조건 제외', 'vol': '변동성 조건 제외', 'obv': 'OBV 조건 제외'}
 
 
 def sel_elig(s, drop=None):
     """buy_eligible과 같은 판정에서 조건 하나를 뺀 것 (drop=None이면 원래 판정과 같음)"""
     pos_ = cr.positive
+    drop = None if drop == 'base' else drop
     c, a, b = (s.get(x) for x in ('close', 'ma120', 'ma200'))
     if not all(pos_(x) for x in (c, a, b)) or not s.get('record'):
         return False
@@ -626,8 +627,8 @@ def selection_report(events, cos, horizons=(20, 60, 120)):
             line(name, df[df.v == v], h)
     for p in ('일반', '금융', '턴어라운드'):
         for h in horizons:
-            line('전체 기준 · ' + p, df[(df.v == None) & (df.path == p)], h)   # noqa: E711
-    full = df[(df.v == None) & (df.h == 60)]   # noqa: E711
+            line('전체 기준 · ' + p, df[(df.v == 'base') & (df.path == p)], h)
+    full = df[(df.v == 'base') & (df.h == 60)]
     for y, g in full.groupby('year'):
         line(f'전체 기준 · {y}년', g, 60)
     open('docs/backtest_selection.txt', 'w', encoding='utf-8').write('\n'.join(out) + '\n')
