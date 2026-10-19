@@ -38,13 +38,13 @@ const server=http.createServer((req,res)=>{
  assert.ok(!(await first.locator('.chips').innerText()).includes('Nasdaq'));
  assert.ok(await first.locator('.distances').isVisible());
  assert.ok(!(await first.locator('.distances').innerText()).includes('11.1%'));
- await first.locator('[data-tag="강세"]').click();
+ assert.equal(await first.locator('[data-tag="강세"],[data-tag="패닉셀"]').count(),0);
+ await first.locator('[data-tag="정보기술"]').click();
  assert.equal(await first.getAttribute('open'),null);
- assert.equal(await page.locator('#tag-title').innerText(),'강세');
- assert.match(await page.locator('#tag-reasons').innerText(),/55.0/);
+ assert.equal(await page.locator('#tag-title').innerText(),'정보기술');
+ assert.match(await page.locator('#tag-reasons').innerText(),/야후 기준 섹터 분류/);
  await page.locator('#tag-close').click();
- await first.locator('[data-tag="패닉셀"]').click();
- assert.match(await page.locator('#tag-reasons').innerText(),/25.0/);
+ await first.locator('[data-tag="정보기술"]').click();
  await page.keyboard.press('Escape');
  assert.equal(await page.locator('#tag-dialog').getAttribute('open'),null);
  const heading=await first.evaluate(el=>{const name=el.querySelector('.name').getBoundingClientRect(),ticker=el.querySelector('.ticker-actions').getBoundingClientRect(),row=el.querySelector('.top').getBoundingClientRect();return {sameRow:Math.abs((name.top+name.bottom)/2-(ticker.top+ticker.bottom)/2)<1,right:Math.abs(ticker.right-row.right)<1};});

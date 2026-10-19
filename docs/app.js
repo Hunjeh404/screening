@@ -64,8 +64,6 @@ function tagReasons(s,tag) {
     }
     case '매출': return ['최근 단일 분기·TTM 매출 모두 과거 최고',`${s.latest_q||'최근 분기'} 매출 ${mil(last(q.rev))}`,`최근 4분기 매출 합계 ${mil(s.rev_ttm_value)}`];
     case '영익': return [`최근 단일 분기·TTM ${s.fin?'세전':'영업'}이익 모두 과거 최고`,`${s.latest_q||'최근 분기'} ${s.fin?'세전':'영업'}이익 ${mil(s.latest_op??last(q.op))}`,`최근 4분기 합계 ${mil(s.op_ttm_value)}`];
-    case '강세': return ['현재가 > 5일선 · 20일선 상승 · 평활 스토캐스틱 비하락',`현재가 ${price(s.close)} · 5일선 ${price(h.sma5)}`,`20일선 ${price(h.prev_bb_basis)} → ${price(h.bb_basis??s.ma20)}`,`스토캐스틱(20·12·12) ${num(h.prev_stoch20_ema2)} → ${num(h.stoch20_ema2)}`];
-    case '패닉셀': return ['20일 RSI의 12일 EMA ≤ 30',`현재 지표값 ${num(h.panic_rsi)}`,`현재가 ${price(s.close)}`];
     case '적자': return ['최근 4분기 합산 순이익 또는 영업이익이 음수',...losses];
     case '추세이탈': return ['두 장기 이평선의 98%를 모두 하회',...ma,`이탈 기준 ${price(s.ma120==null?null:s.ma120*.98)} · ${price(s.ma200==null?null:s.ma200*.98)}`];
     case '수급악화': return ['끝난 주봉 52주 OBV 다이버전스 이탈',`현재 판정: ${s.obv_signal||'자료 없음'}`,`확보 주봉 ${s.wk?.c?.length??0}개`];
@@ -123,8 +121,6 @@ function card(s, generated) {
   if(s.trend)add(s.trend==='상승추세'?'상승우위':s.trend);
   if(s.rev_q&&s.rev_ttm)add('매출');
   if(s.op_q&&s.op_ttm)add('영익');
-  if(h.super_bull)add('강세');
-  if(h.panic)add('패닉셀','sell');
   (s.state_reasons||[]).forEach(r=>add(r==='패닉셀'?'투매':r,s.state.toLowerCase()));
   if([s.ni_ttm,s.op_ttm_value].some(v=>Number.isFinite(v)&&v<0))add('적자','sell');
   if(s.share_warn)add('주식 수 확인 필요','muted');

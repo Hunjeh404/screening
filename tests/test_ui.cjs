@@ -39,7 +39,7 @@ for(const age of [null,-1,3,4]) assert.ok(!card({...s,hunbot:{lc_age:age}}).incl
 assert.ok(!card({...s,hunbot:{lc_age:1,sc:true}}).includes('▲'));
 assert.ok(!card({...s,data_missing:true,hunbot:{lc_age:1}}).includes('▲'));
 const both=card({...s,hunbot:{super_bull:true,panic:true}});
-assert.ok(both.includes('data-tag="강세"'));assert.ok(both.includes('class="chip tag-info sell" data-tag="패닉셀"'));
+assert.ok(!both.includes('data-tag="강세"'));assert.ok(!both.includes('data-tag="패닉셀"'));
 assert.ok(card({...s,state_reasons:['패닉셀']}).includes('>투매<'));
 const detail=card({...s,close:1.95,ma120:1.93,ma200:2.11,change_pct:-2.5,dist_ma120:1,dist_ma200:-7.4});
 assert.match(detail,/현재가 \$1.95<span class="neg">\(-2.5%\)/);
