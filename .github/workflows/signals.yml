@@ -12,7 +12,10 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - run: python -u scripts/weekly_signals.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: weekly-signals
-          path: out.txt
+      - name: Show result
+        run: |
+          python - <<'PY'
+          lines = open('out.txt', encoding='utf-8').read().splitlines()
+          for i in range(0, len(lines), 12):
+              print('::warning title=signals ' + str(i // 12) + '::' + '%0A'.join(lines[i:i + 12]))
+          PY
