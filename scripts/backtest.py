@@ -31,12 +31,7 @@ _O = dict(_T, idx_open=True)
 _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _V = {'open': ('우수전략', True, _O),
-      'cash': ('기준선: 종목만 · 남는 돈 현금', True, dict(_O, spy=False)),
-      'tq': ('기준선: TQQQ만 · 200일선', True, dict(_O, slots=0)),
-      'cap': ('TQQQ 최대 50%', True, dict(_O, idx_cap=.5)),
-      'size': ('종목 15%+▲7.5% · 6종목', True, dict(_O, **_R)),
-      'buf': ('200일선 ±1.5% 버퍼', True, dict(_O, idx_buf=True)),
-      'all': ('TQQQ 50% + 15%·6종목 + 버퍼', True, dict(_O, idx_cap=.5, idx_buf=True, **_R))}
+      'cap': ('TQQQ 최대 50%', True, dict(_O, idx_cap=.5))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -46,6 +41,7 @@ day_int = lambda s: (dt.date.fromisoformat(s) - EPOCH).days
 day_str = lambda n: (EPOCH + dt.timedelta(days=int(n))).isoformat()
 ORIG_OBV = cr.obv_signal
 CAL = None             # 거래일 달력(SPY 기준), main에서 채움
+QQQ_OC = None          # QQQ (시가, 종가) 거래일 달력 기준, 거래별 대조군 계산용
 DROP = ('q', 'fscore_items', 'hunbot', 'close', 'ma20', 'ma120', 'ma200', 'vol20', 'vol60', 'change_pct',
         'price_date', 'above120', 'above200', 'vol_down', 'dd52', 'marcap', 'per', 'pbr', 'share_warn')
 
@@ -230,7 +226,7 @@ class Book:
         p['events'].append(why)
         if p['sh'] <= p['base'] * 1e-9:
             self.closed.append({'ticker': t, 'entry_k': p['day'], 'exit_k': k, 'ret': p['proceeds'] / p['spent'] - 1,
-                                'exit': why, 'events': '>'.join(p['events'])})
+                                'exit': why, 'events': '>'.join(p['events']), **p.get('tag', {})})
             del self.pos[t]
             return False
         return True
@@ -264,7 +260,8 @@ class Book:
                            'tp2': lv.get('tp2', px * (1 + m['target_2'] / 100)),
                            'trail': lv.get('trail', m['expected_loss']),
                            't1_done': False, 't2_done': False, 'added': o['added'], 'day': k, 'bull': False,
-                           'trails': [], 'events': [o.get('label') or ('매수+추가' if o['added'] else '매수')]}
+                           'trails': [], 'events': [o.get('label') or ('매수+추가' if o['added'] else '매수')],
+                           'tag': o.get('tag', {})}
 
     def morning(self, k, bar):
         """시가: 전날 신호 주문 체결(매도 먼저). 장중: 손절(항상), 목표가 처리(초강세 구간이면 쉰다)"""
@@ -420,7 +417,11 @@ class Book:
                                           'tp2': c * (1 + m['target_2'] / 100), 'trail': m['expected_loss']}})
             elif self.entry in ('open', 'wait', 'wait_sig', 'sigonly'):
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
-                               'added': added, 'metrics': m,
+                               'added': added, 'metrics': m, 'tag': {
+                                   'path': '금융' if s.get('fin') else '턴어라운드' if cr.loss_turnaround(s) else '일반',
+                                   'sector': self.sector.get(s['code'], '미분류'), 'age': k - s.get('filed_k', k),
+                                   'record': '+'.join(x for x, a, b2 in (('매출', 'rev_q', 'rev_ttm'), ('영익', 'op_q', 'op_ttm'))
+                                                      if s.get(a) and s.get(b2))},
                                **({'levels': self.card0[s['code']], 'below': self.card_lv} if s['code'] in self.card0 else {})})
             elif self.entry == 'limitA' and added:
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + self.add), 'added': True,
@@ -456,6 +457,7 @@ def build(co, snap, k):
         warn, marcap, per, pbr, per_med = True, None, None, None, None
     r = lambda x, n=1: None if x is None else round(x, n)
     s = dict(F)
+    s['filed_k'] = snap[0]   # 이 재무가 반영된(공시 다음) 거래일
     s.update(code=co['t'], name=co['t'], market='', fin=co['fin'], close=c, ma20=g('ma20'), ma120=ma120,
              ma200=ma200, vol20=v20, vol60=v60, change_pct=g('chg'), price_date=day_str(CAL[k]),
              hunbot={'super_bull': tri('sb'), 'panic': tri('pn'), 'sc': tri('sc'),
@@ -511,7 +513,10 @@ def report(books, spy, days):
             tr['entry'] = [day_str(days[i]) for i in tr['entry_k']]
             tr['exit_date'] = [day_str(days[i]) for i in tr['exit_k']]
             tr.insert(0, 'strategy', name)
-            tr[['strategy', 'ticker', 'entry', 'exit_date', 'ret', 'exit', 'events']].to_csv(
+            if QQQ_OC is not None:   # 같은 날 시가에 사고 그 거래 마지막 날 종가에 판 QQQ (대조군)
+                tr['qqq'] = [QQQ_OC[1][b] / QQQ_OC[0][a] - 1 for a, b in zip(tr['entry_k'], tr['exit_k'])]
+            cols = [c for c in ('path', 'sector', 'age', 'record', 'qqq') if c in tr]
+            tr[['strategy', 'ticker', 'entry', 'exit_date', 'ret', 'exit', 'events'] + cols].to_csv(
                 f'docs/backtest_trades_{i}.csv', index=False)
     # 자산 곡선 (로그 축)
     W, H, P = 760, 300, 36
@@ -604,7 +609,7 @@ def main():
     with Pool() as pool:
         cos = [x for x in pool.imap_unordered(prepare, jobs, chunksize=8) if x]
     print('준비 완료', len(cos), '종목', flush=True)
-    sectors = load_sectors([co['t'] for co in cos]) if any(kw.get('sector_rank') for _, _, kw in STRATEGIES.values()) else {}
+    sectors = load_sectors([co['t'] for co in cos])
 
     # 앱과 같은 판정 코드를 쓰되, 주봉 OBV는 미리 계산한 판정을 쓰고 이력 스냅숏은 얕은 복사로 둔다(속도)
     cr.obv_signal = lambda w: w
@@ -635,6 +640,8 @@ def main():
         assert len(C3) >= len(CAL), '합성 경로가 백테스트 기간보다 짧음'
         px_idx[n], syn_ok[n] = (O3[:len(CAL)], C3[:len(CAL)]), ok3[:len(CAL)]
         print(n, '덮어씌운 구간 시작', s3, flush=True)
+    global QQQ_OC
+    QQQ_OC = idx_px('QQQ')
     qc = np.load(f'{BT}/px/QQQ.npz')
     qma = np.convolve(qc['c'].astype(float), np.ones(200) / 200, 'valid')
     qok = dict(zip(qc['d'][199:].tolist(), (qc['c'][199:] >= qma).tolist()))
