@@ -1,5 +1,9 @@
 name: weekly-signals
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        default: weekly_signals.py
 permissions:
   contents: read
 jobs:
@@ -11,7 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python -u scripts/weekly_signals.py
+      - run: python -u scripts/${{ inputs.script }}
       - name: Show result
         run: |
           python - <<'PY'
