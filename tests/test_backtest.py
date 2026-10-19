@@ -221,6 +221,25 @@ class BookTest(unittest.TestCase):
         self.assertEqual(b.pos['A']['entry'], 103)
         self.assertAlmostEqual(b.pos['A']['spent'], .3)
 
+    def test_wait_signal_card_levels(self):
+        C = lambda **kw: {'A': card('A', close=100, loss=-5, **kw)}          # 카드 손절가 95, 목표가 110·120
+        b = bt.Book(5, cost=0, entry='wait_sig', first=.3, add=0, card_lv='recalc')
+        self.run_days(b, [({}, C(), ['A']), ({'A': (102, 103, 101, 102)}, C(age=0), []), ({'A': (103, 104, 102, 103)}, C(), [])])
+        p = b.pos['A']
+        self.assertEqual(p['entry'], 103)
+        self.assertAlmostEqual(p['stop'], 95)
+        self.assertAlmostEqual(p['tp1'], 110)
+        self.assertAlmostEqual(p['spent'], .3)
+        days = [({}, C(), ['A']), ({'A': (96, 96, 95.5, 96)}, C(age=0), []), ({'A': (94, 95, 93, 94)}, C(), [])]
+        b = bt.Book(5, cost=0, entry='wait_sig', first=.3, add=0, card_lv='recalc')   # 시가 94 <= 95: 매수가 기준
+        self.run_days(b, days)
+        self.assertAlmostEqual(b.pos['A']['stop'], 94 * .95)
+        self.assertAlmostEqual(b.pos['A']['tp1'], 94 * 1.1)
+        b = bt.Book(5, cost=0, entry='wait_sig', first=.3, add=0, card_lv='skip')     # 취소, 다시 안 삼
+        self.run_days(b, days + [({'A': (94, 95, 93, 94)}, C(age=1), []), ({'A': (94, 95, 93, 94)}, C(), [])])
+        self.assertEqual(b.pos, {})
+        self.assertAlmostEqual(b.cash, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

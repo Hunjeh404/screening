@@ -25,10 +25,12 @@ START = '2013-01-01'
 COST = .001            # 편도 거래 비용
 # 전략: (이름, 이평선 조건 사용, Book 설정). 모두 공시지연 X·1차 50%/2차 25% TS, 손절선 항상 유지, 초강세에 TS 쉼
 # 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
-_V = {'base_s': ('0 우수전략 · 남는 돈 SPY', True, dict(spy=True)),
-      'nop_s': ('1 초강세에도 TS 매도 · 남는 돈 SPY', True, dict(spy=True, pause=False)),
-      'h20_s': ('2 훈봇 무시 20% · 남는 돈 SPY', True, dict(spy=True, pause=False, add=0)),
-      'h30_s': ('3 훈봇 무시 30% · 남는 돈 SPY', True, dict(spy=True, pause=False, first=.3, add=0))}
+_W = dict(spy=True, pause=False, entry='wait_sig', add=0)
+_V = {'nop_s': ('1 우수전략(초강세에도 TS) · 남는 돈 SPY', True, dict(spy=True, pause=False)),
+      'w30r': ('2 ▲ 대기 30% · 손절선 아래면 재계산', True, dict(_W, first=.3, card_lv='recalc')),
+      'w30k': ('2 ▲ 대기 30% · 손절선 아래면 취소', True, dict(_W, first=.3, card_lv='skip')),
+      'w20r': ('3 ▲ 대기 20% · 손절선 아래면 재계산', True, dict(_W, first=.2, card_lv='recalc')),
+      'w20k': ('3 ▲ 대기 20% · 손절선 아래면 취소', True, dict(_W, first=.2, card_lv='skip'))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -181,7 +183,10 @@ class Book:
     ts=False: 목표가에 닿으면 그 가격에 바로 판다(1차 50%, 2차 남은 물량의 50%)."""
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
-                 pause=True, regime=False, breakeven=False, spy=False):
+                 pause=True, regime=False, breakeven=False, spy=False, card_lv=None):
+        # card_lv(wait_sig): 손절·목표가를 카드가 처음 뜬 날 종가 기준 가격으로. 매수 시가가 그 손절가 이하면
+        #   'recalc': 매수가 기준으로 다시 계산, 'skip': 사지 않고 대기 취소
+        self.card_lv, self.card0 = card_lv, {}
         # spy: 남는 현금을 SPY로 들고 있다가 매수 자금이 모자라면 시가에 필요한 만큼 판다 (spy_bar: k -> (시가, 종가))
         self.spy, self.spy_sh, self.spy_bar = spy, 0.0, None
         # entry 'wait': 매수 카드에 오른 뒤 ▲ 또는 초강세가 확인되면 다음 날 시가 (기다리는 종목은 슬롯 미포함)
@@ -225,6 +230,12 @@ class Book:
         else:
             m = o['metrics']
             lv = o.get('levels') or {}   # 지정가 매수: 카드 손절가·목표가(가격). 없으면 매수가 기준 비율
+            if lv and o.get('below') and px <= lv['stop']:
+                if o['below'] == 'skip':
+                    self.watch.discard(t)
+                    self.cash += spent
+                    return
+                lv = {}
             if self.entry in ('limitA', 'limitB') and not lv:   # ▲ 즉시 매수: 매수가 -cap% 손절, 목표가는 카드 가격
                 lv = {'stop': px * (1 - self.cap / 100), 'tp1': o['card_close'] * (1 + m['target_1'] / 100),
                       'tp2': o['card_close'] * (1 + m['target_2'] / 100), 'trail': -self.cap}
@@ -333,8 +344,14 @@ class Book:
             else:
                 self.pending[t]['added'] = signal(t)
         if self.entry in ('wait', 'wait_sig'):   # 기다리는 종목(wait_sig는 ▲만 기다림): 매수 카드에서 빠지면 제외, ▲·초강세 확인 시 다음 날 시가 20%
+            for t in newly:
+                if self.card_lv and t not in self.watch and cards[t]['metrics']['expected_loss'] is not None:
+                    c, m = cards[t]['close'], cards[t]['metrics']
+                    self.card0[t] = {'stop': c * (1 + m['expected_loss'] / 100), 'tp1': c * (1 + m['target_1'] / 100),
+                                     'tp2': c * (1 + m['target_2'] / 100), 'trail': m['expected_loss']}
             self.watch = {t for t in self.watch | set(newly) if t not in self.pos
                           and cards.get(t, {}).get('state') == 'BUY' and cards[t]['metrics']['expected_loss'] is not None}
+            self.card0 = {t: v for t, v in self.card0.items() if t in self.watch}
             go = [cards[t] for t in self.watch if signal(t) or (self.entry == 'wait' and cards[t]['hunbot'].get('super_bull'))]
             newly = [s['code'] for s in go]
         waiting = {o['t'] for o in orders if o['side'] == 'buy'} | set(self.pending)
@@ -348,7 +365,8 @@ class Book:
                 continue
             if self.entry in ('open', 'wait', 'wait_sig', 'sigonly'):
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
-                               'added': added, 'metrics': m})
+                               'added': added, 'metrics': m,
+                               **({'levels': self.card0[s['code']], 'below': self.card_lv} if s['code'] in self.card0 else {})})
             elif self.entry == 'limitA' and added:
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + self.add), 'added': True,
                                'metrics': m, 'card_close': c, 'label': '▲시가매수'})
@@ -475,7 +493,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>규칙과 한계</h2><ul>
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
-<li>1: 초강세 구간에도 트레일링 스탑을 쉬지 않음. 2·3: 훈봇을 쓰지 않음(초강세에도 TS 매도, ▲ 추가 매수 없음), 매수 카드에 오르면 다음 날 시가에 20%·30%(현금이 모자라면 남은 만큼).</li>
+<li>1 우수전략: 초강세 구간에도 트레일링 스탑을 쉬지 않음. 2·3: 매수 카드에 오른 뒤 훈봇 ▲가 뜨면 다음 날 시가에 30%·20%(추가 매수 없음, 기다리는 종목은 5종목에 미포함, 매수 카드에서 빠지면 취소). 손절·목표가는 카드가 처음 뜬 날 종가 기준 가격. 매수 시가가 그 손절가 이하면 매수가 기준으로 다시 계산하거나, 사지 않고 취소.</li>
 <li>남는 돈 SPY: 남는 현금은 그날 종가에 SPY를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 SPY를 팖(편도 비용 동일).</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
