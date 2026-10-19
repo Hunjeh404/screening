@@ -324,6 +324,13 @@ class BookTest(unittest.TestCase):
         self.run_days(b, [({}, {'A': st}, ['A']), ({'A': (100, 100, 100, 100)}, {'A': st}, [])])
         self.assertLess(b.pos['A']['stop'], 95.01)   # 턴어라운드 -3%가 아니라 일반 기준(최소 -5%)
 
+    def test_only_turnaround(self):
+        ta = {**card('T', close=100), 'op_ttm_value': -1, 'rev_q': True, 'rev_ttm': True}
+        b = bt.Book(5, cost=0, only_ta=True)
+        cards = {'T': ta, 'G': card('G')}
+        self.run_days(b, [({}, cards, ['T', 'G']), ({t: (10, 10, 10, 10) for t in 'TG'}, cards, [])])
+        self.assertEqual(list(b.pos), ['T'])
+
 
 if __name__ == '__main__':
     unittest.main()

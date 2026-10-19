@@ -30,13 +30,10 @@ _T = dict(_B, idx='TQQQ', idx_ma=True)
 _O = dict(_T, idx_open=True)
 _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
-_C = dict(_O, spy=False)
-_V = {'open': ('우수전략', True, _O),
-      'open_n': ('우수전략 · 턴어라운드 손절 일반과 같게', True, dict(_O, ta_mode='normal')),
-      'open_c': ('우수전략 · 턴어라운드는 매도카드에서만 매도', True, dict(_O, ta_mode='card')),
-      'cash': ('종목만(현금)', True, _C),
-      'cash_n': ('종목만(현금) · 턴어라운드 손절 일반과 같게', True, dict(_C, ta_mode='normal')),
-      'cash_c': ('종목만(현금) · 턴어라운드는 매도카드에서만 매도', True, dict(_C, ta_mode='card'))}
+_P = dict(_O, idx_cap=.5)
+_V = {'cap': ('0 지금 규칙 · TQQQ 최대 50%', True, _P),
+      'cap_ta': ('1 턴어라운드만 · TQQQ 최대 50%', True, dict(_P, only_ta=True)),
+      'cap_tq': ('2 종목 없이 TQQQ 50% · 나머지 현금', True, dict(_P, slots=0))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -191,7 +188,10 @@ class Book:
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
-                 keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None):
+                 keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
+                 only_ta=False):
+        # only_ta: 적자 턴어라운드 경로 종목만 산다
+        self.only_ta = only_ta
         # ta_mode(적자 턴어라운드 경로): 'normal' 손절·목표를 일반 기업과 같은 폭으로, 'card' 손절·TS 없이 매도 카드에서만 매도
         self.ta_mode = ta_mode
         # idx_cap: 지수(TQQQ) 보유를 총자산의 이 비율까지만(넘는 현금은 현금으로). idx_buf: 200일선 ±1.5% 버퍼
@@ -418,6 +418,8 @@ class Book:
         for s in new[:max(free, 0)]:
             added, m, c = signal(s['code']), s['metrics'], s.get('close')
             ta = not s.get('fin') and cr.loss_turnaround(s)
+            if self.only_ta and not ta:
+                continue
             if ta and self.ta_mode == 'normal':
                 r_, t1_, t2_ = cr.calc_card_metrics(c, s.get('ma120'), s.get('ma200'), s.get('per'), s.get('per_med5'),
                                                     s.get('pbr'), s.get('fin'), s.get('mcap_b'), turnaround=False)
@@ -571,7 +573,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>턴어라운드 손절 일반과 같게: 적자 턴어라운드 경로 종목의 손절·목표를 일반 기업 기준(최소 -5%, 최대 -7%/-10%)으로 계산. 매도카드에서만 매도: 턴어라운드 종목은 손절·트레일링 스탑 없이 고평가로 바뀔 때만 매도. 종목만(현금): 남는 돈을 현금으로 둔 같은 규칙.</li>
+<li>TQQQ 최대 50%: TQQQ 평가액이 총자산의 50%를 넘지 않게 사고 나머지는 현금(QQQ 200일선 아래면 전부 현금). 턴어라운드만: 적자 턴어라운드 경로 종목만 매수(일반 기업·금융업은 매수하지 않음). 종목 없이: 종목 매매를 하지 않음.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
