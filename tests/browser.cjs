@@ -50,8 +50,13 @@ const server=http.createServer((req,res)=>{
  assert.match(await first.locator('.name').getAttribute('href'),/^intent:/);
  await first.locator('.distances').click();assert.equal(await first.getAttribute('open'),'');
  assert.equal(await first.locator('.returns .m').count(),3);
- await page.locator('#qqq .quote-item').first().waitFor();
- assert.equal(await page.locator('#qqq').innerText(),'QQQ $500.00(-1.2%) · 200일선 $480.00');
+ await page.locator('#qqq:not([hidden])').waitFor();
+ assert.equal(await page.locator('#qqq').innerText(),'QQQ +4.2%');
+ assert.equal(await page.locator('#qqq').evaluate(el=>getComputedStyle(el).color),'rgb(95, 224, 194)');
+ await page.locator('#qqq').click();
+ assert.equal(await page.locator('#tag-title').innerText(),'QQQ');
+ assert.match(await page.locator('#tag-reasons').innerText(),/QQQ \$500\.00 \(-1\.2%\)\s*200일선 \$480\.00\s*200일선 대비 \+4\.2%/);
+ await page.locator('#tag-close').click();
  assert.equal(await page.locator('#quarter').count(),0);
  assert.equal(await first.locator('.cost-price').first().innerText(),'');
  await first.locator('.cost-input').fill('100');

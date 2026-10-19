@@ -196,13 +196,18 @@ async function load(m) {
     render();
   }catch(e){delete CACHE[m];if(id===requestId){$('list').innerHTML='';$('banner').innerHTML='<div class="banner">'+(m==='kr'?'한국 데이터를 불러오지 못했습니다.':'데이터를 불러오지 못했습니다.')+' 잠시 후 새로고침해 주세요.</div>';}}
 }
-function qqqQuote(q) {
-  if(!q||!Number.isFinite(q.close))return '';
-  const cls=v=>Number.isFinite(v)?v>0?'pos':v<0?'neg':'neutral':'neutral',usd=v=>Number.isFinite(v)?'$'+num(v,2):'–';
-  return `<span class="quote-item">QQQ ${usd(q.close)}<span class="${cls(q.change_pct)}">(${signed(q.change_pct)})</span></span> · <span class="quote-item">200일선 <span class="${cls(Number.isFinite(q.ma200)?q.close-q.ma200:null)}">${usd(q.ma200)}</span></span>`;
+function qqqChip(q) {
+  if(!q||!Number.isFinite(q.close)||!Number.isFinite(q.ma200)||q.ma200<=0)return null;
+  const gap=(q.close/q.ma200-1)*100,usd=v=>'$'+num(v,2);
+  return {text:`QQQ ${signed(gap)}`,cls:gap<0?'sell':'',
+    lines:[`QQQ ${usd(q.close)} (${signed(q.change_pct)})`,`200일선 ${usd(q.ma200)}`,`200일선 대비 ${signed(gap)}`,`기준일 ${q.date||'–'}`]};
 }
 if(typeof document!=='undefined'){
-  fetch('qqq.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(q=>{$('qqq').innerHTML=qqqQuote(q);}).catch(()=>{});
+  fetch('qqq.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(q=>{
+    const c=qqqChip(q),el=$('qqq');if(!c)return;
+    el.textContent=c.text;el.className='chip '+c.cls;el.hidden=false;el.setAttribute('aria-label',c.text+' 설명');
+    el.onclick=()=>showTagDialog('QQQ',c.lines);
+  }).catch(()=>{});
   $('tag-close').addEventListener('click',()=>$('tag-dialog').close());
   $('tag-dialog').addEventListener('click',event=>{if(event.target===$('tag-dialog')){
     const r=event.target.getBoundingClientRect();
@@ -213,4 +218,4 @@ if(typeof document!=='undefined'){
     VALUE=b.dataset.value;document.querySelectorAll('[data-value]').forEach(x=>{const on=x===b;x.classList.toggle('on',on);x.setAttribute('aria-selected',String(on));});render();
   }));load('us');
 }
-if(typeof module!=='undefined')module.exports={qqqQuote,tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons,isNewState};
+if(typeof module!=='undefined')module.exports={qqqChip,tradingViewUrl,esc,bars,card,sectors,tabStocks,hasValuationBasis,tagReasons,isNewState};
