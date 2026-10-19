@@ -264,6 +264,16 @@ class BookTest(unittest.TestCase):
         self.run_days(b, [({}, {'A': card('A')}, ['A']), hold(100), sell(99), hold(99)])
         self.assertEqual((b.core, b.pos), ([], {}))
 
+    def test_index_trades_next_open(self):
+        b = bt.Book(5, cost=0, spy=True, idx_ma=True, idx_open=True)
+        px, ok = [(100, 100), (100, 90), (80, 99), (99, 99)], [True, False, True, True]
+        b.spy_bar, b.idx_ok = (lambda k: px[k]), (lambda k: ok[k])
+        self.run_days(b, [({}, {}, [])] * 4)
+        self.assertEqual(b.curve[0], 1)                                     # 첫날 종가엔 아직 현금
+        self.assertAlmostEqual(b.curve[1], .9)                              # 둘째 날 시가 100에 매수, 종가 90
+        self.assertAlmostEqual(b.curve[2], .8)                              # 전날 이탈 -> 시가 80에 매도
+        self.assertAlmostEqual(b.curve[3], .8)                              # 전날 회복 -> 시가 99에 매수
+
 
 if __name__ == '__main__':
     unittest.main()

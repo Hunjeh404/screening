@@ -27,10 +27,8 @@ COST = .001            # 편도 거래 비용
 # 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
 _B = dict(spy=True, pause=False)
 _T = dict(_B, idx='TQQQ', idx_ma=True)
-_V = {'base': ('1 우수전략 · TQQQ 200일선', True, _T),
-      'keep': ('2 매도카드 때 수익이면 10% 보유', True, dict(_T, keep=.1)),
-      'ts2': ('3 2차목표 50% TS · 매도카드 전량', True, dict(_T, exits='ts2')),
-      'ts2k': ('4 3번 + 수익이면 10% 보유', True, dict(_T, exits='ts2', keep=.1))}
+_V = {'base': ('우수전략 · TQQQ 종가 매매', True, _T),
+      'open': ('우수전략 · TQQQ 다음 날 시가 매매', True, dict(_T, idx_open=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -184,7 +182,9 @@ class Book:
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
-                 keep=0.0):
+                 keep=0.0, idx_open=False):
+        # idx_open: 지수 매매(남는 돈 매수, 200일선 매도·매수)를 종가 대신 다음 날 시가에
+        self.idx_open = idx_open
         # keep: 매도 카드 매도 시 그 종목 총 성적이 수익이면 최초 물량의 keep만큼은 팔지 않고 끝까지 보유(슬롯 미포함)
         self.keep, self.core = keep, []
         # card_lv(wait_sig): 손절·목표가를 카드가 처음 뜬 날 종가 기준 가격으로. 매수 시가가 그 손절가 이하면
@@ -277,6 +277,14 @@ class Book:
         for o in orders:
             if o['side'] == 'buy' and bar(o['t']):
                 self._buy(o, bar(o['t'])[0], k)
+        if self.spy and self.idx_open and k > 0:   # 전날 종가 기준 판정으로 시가에 지수 매매
+            op = self.spy_bar(k)[0]
+            if self.idx_ma and not self.idx_ok(k - 1):
+                self.cash += self.spy_sh * op * (1 - self.cost)
+                self.spy_sh = 0.0
+            elif self.cash > 0:
+                self.spy_sh += self.cash / (op * (1 + self.cost))
+                self.cash = 0.0
         for t in list(self.pending):   # 지정가: 장중 저가가 지정가에 닿으면 그 가격(갭 하락이면 시가)
             o, b = self.pending[t], bar(t)
             if b and b[2] <= o['limit']:
@@ -335,8 +343,8 @@ class Book:
             if b:
                 c['last'] = b[3]
         value = sum(p['sh'] * p['last'] for p in self.pos.values()) + sum(c['sh'] * c['last'] for c in self.core)
-        ok = not self.idx_ma or self.idx_ok(k)
-        if self.spy and self.spy_sh and not ok:   # 200일선 아래: 종가에 지수 전량 매도
+        ok = (not self.idx_ma or self.idx_ok(k)) and not self.idx_open
+        if self.spy and self.spy_sh and not ok and not self.idx_open:   # 200일선 아래: 종가에 지수 전량 매도
             self.cash += self.spy_sh * self.spy_bar(k)[1] * (1 - self.cost)
             self.spy_sh = 0.0
         if self.spy and self.cash > 0 and ok:   # 남는 현금은 종가에 지수 매수
@@ -517,7 +525,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 초강세 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
-<li>10% 보유: 매도 카드로 팔 때 그 종목 총 성적(판 금액 + 남은 물량의 매도가 평가)이 매수 금액보다 크면 최초 물량의 10%(남은 물량이 더 적으면 전부)는 팔지 않고 끝까지 보유. 보유 종목 수에 미포함, 재매수는 별도 운용. 3: 1차 목표 없이 2차 목표가에 50% 트레일링 스탑, 나머지는 매도 카드에 전량.</li>
+<li>TQQQ 다음 날 시가 매매: 남는 돈의 TQQQ 매수와 QQQ 200일선 판정에 따른 매도·매수를 그날 종가가 아니라 다음 날 시가에 함(종목 매매 후 남은 현금 기준).</li>
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
