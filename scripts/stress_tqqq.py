@@ -34,6 +34,25 @@ def synth(o, c, lev=3, fee=FEE):
     return O, C
 
 
+def mix(Oq, Cq, Ot, Ct, ok):
+    """반은 1배(항상 보유), 반은 3배(전날 200일선 위일 때만, 아래면 현금). 매일 반반으로 맞춘다고 가정."""
+    C, O = np.ones(len(Cq)), np.ones(len(Cq))
+    for k in range(1, len(Cq)):
+        held, was = bool(ok[k - 1]), bool(ok[k - 2]) if k > 1 else False
+        rq, rt = Cq[k] / Cq[k - 1] - 1, Ct[k] / Ct[k - 1] - 1
+        oq, ot = Oq[k] / Cq[k - 1] - 1, Ot[k] / Ct[k - 1] - 1
+        C[k] = C[k - 1] * (1 + .5 * rq + (.5 * rt if held else 0) - (.5 * COST if held != was else 0))
+        O[k] = C[k - 1] * (1 + .5 * oq + (.5 * ot if held else 0))
+    return O, C
+
+
+def rates(d):
+    """미국 3개월 국채 금리(연, 소수)를 나스닥100 거래일에 맞춤"""
+    d2, _, c2 = load('^IRX')
+    j = np.clip(np.searchsorted(d2, d, 'right') - 1, 0, None)
+    return np.nan_to_num(c2[j] / 100)
+
+
 def ma_ok(c, n=200):
     m = np.convolve(c, np.ones(n) / n, 'valid')
     return np.r_[np.ones(n - 1, bool), c[n - 1:] >= m]
@@ -76,7 +95,12 @@ def path(name='NDX3'):
     ok = ma_ok(c)
     i, _ = worst(rule(O, C, ok)[200:], YEARS * 252)
     i += 200
-    if name == 'NDX1':
+    if name in ('NDX3F', 'MIXF'):   # 차입 비용 반영: 연 0.95% + 2배 × 3개월 국채 금리
+        O, C = synth(o, c, 3, (.0095 + 2 * rates(d)) / 252)
+        if name == 'MIXF':
+            Oq, Cq = synth(o, c, 1, .002 / 252)
+            O, C = mix(Oq, Cq, O, C, ok)
+    elif name == 'NDX1':
         O, C = synth(o, c, 1, .002 / 252)
     elif name == 'SPX1':
         d2, o2, c2 = load('^GSPC')
@@ -110,8 +134,18 @@ def main():
         m = (j < len(d)) & (d[np.minimum(j, len(d) - 1)] == t['d'])
         a, b = t['c'][m].astype(float), C[j[m]]
         yrs = len(a) / 252
+        _, CF = synth(o, c, 3, (.0095 + 2 * rates(d)) / 252)
+        f = CF[j[m]]
         lines.append(f'검증 {day(t["d"][m][0])}~: 실제 TQQQ 연 {((a[-1] / a[0]) ** (1 / yrs) - 1) * 100:+.1f}% · '
-                     f'합성 3배 연 {((b[-1] / b[0]) ** (1 / yrs) - 1) * 100:+.1f}%')
+                     f'합성 3배 연 {((b[-1] / b[0]) ** (1 / yrs) - 1) * 100:+.1f}% · '
+                     f'차입비용 반영 연 {((f[-1] / f[0]) ** (1 / yrs) - 1) * 100:+.1f}%')
+        OF = synth(o, c, 3, (.0095 + 2 * rates(d)) / 252)[0]
+        rf = rule(OF, CF, ok)
+        ia, ib = (int(np.searchsorted(d, (dt.date.fromisoformat(x) - dt.date(1970, 1, 1)).days)) for x in ('2000-03-10', '2010-03-19'))
+        seg = rf[ia:ib + 1]
+        lines.append(f'차입비용 반영 3배·200일선 2000-03-10~2010-03-19: {(seg[-1] / seg[0] - 1) * 100:+.1f}% '
+                     f'(MDD {(seg / np.maximum.accumulate(seg) - 1).min() * 100:.0f}%) · 전체 연 '
+                     f'{stats(rf[s:], len(rf) - s)[0] * 100:+.1f}%')
     lines.append('백테스트에 덮어씌울 시작일(3배·200일선 최악 10년): ' + path()[3])
     for line in lines:
         print('::warning title=stress::' + line)

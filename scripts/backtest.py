@@ -27,12 +27,14 @@ COST = .001            # 편도 거래 비용
 # 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
 _B = dict(spy=True, pause=False)
 _T = dict(_B, idx='TQQQ', idx_ma=True)
-_V = {'open': ('우수전략 · TQQQ 다음 날 시가 매매', True, dict(_T, idx_open=True)),
-      'stress': ('최악 10년 · 남는 돈 TQQQ(합성 3배)·200일선', True, dict(_T, idx_open=True, idx='NDX3')),
-      'sq': ('최악 10년 · 남는 돈 QQQ', True, dict(_T, idx_open=True, idx='NDX1', idx_ma=False)),
-      'sqm': ('최악 10년 · 남는 돈 QQQ·200일선', True, dict(_T, idx_open=True, idx='NDX1')),
-      'ss': ('최악 10년 · 남는 돈 SPY', True, dict(_T, idx_open=True, idx='SPX1', idx_ma=False)),
-      'ssm': ('최악 10년 · 남는 돈 SPY·200일선', True, dict(_T, idx_open=True, idx='SPX1'))}
+_O = dict(_T, idx_open=True)
+_V = {'open': ('우수전략 · 남는 돈 TQQQ·200일선', True, _O),
+      'q': ('남는 돈 QQQ', True, dict(_O, idx='QQQ', idx_ma=False)),
+      'mix': ('남는 돈 QQQ 반 + TQQQ·200일선 반', True, dict(_O, idx='MIX', idx_ma=False)),
+      'keep': ('우수전략 + 수익이면 10% 묻어두기', True, dict(_O, keep=.1)),
+      'sf': ('최악 10년 · TQQQ(합성 3배, 차입비용)·200일선', True, dict(_O, idx='NDX3F')),
+      'sq': ('최악 10년 · QQQ', True, dict(_O, idx='NDX1', idx_ma=False)),
+      'smix': ('최악 10년 · QQQ 반 + TQQQ(차입비용)·200일선 반', True, dict(_O, idx='MIXF', idx_ma=False))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -361,6 +363,7 @@ class Book:
         self.last_eq = eq
         self.curve.append(eq)
         self.invested.append(value / eq if eq else 0)
+        eq -= sum(c['sh'] * c['last'] for c in self.core)   # 매수 비중은 묻어 둔 물량을 뺀 자산 기준
         signal = lambda t: bool(cards.get(t) and not cards[t]['hunbot'].get('sc')
                                 and cards[t]['hunbot'].get('lc_age') in (0, 1, 2))
         sells = [t for t in self.pos if cards.get(t, {}).get('state') == 'SELL']
@@ -536,7 +539,9 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 초강세 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
-<li>최악 10년 덮어씌움: 종목 매매는 그대로 두고, 남는 돈 지수의 가격과 200일선 판정만 2000-03-10(합성 3배·200일선의 최악 10년 시작)부터의 경로로 바꿈. 합성 3배는 나스닥100 하루 수익률 3배 - 연 0.95%, QQQ는 나스닥100 지수 - 연 0.2%, SPY는 S&P500 지수 - 연 0.1%(배당 미반영). 200일선은 모두 나스닥100 기준. 같은 시기 종목 폭락은 반영되지 않음. TQQQ 다음 날 시가 매매: 남는 돈의 TQQQ 매수와 200일선 매도·매수를 전날 종가 판정으로 다음 날 시가에.</li>
+<li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
+<li>QQQ 반 + TQQQ 반: 남는 돈의 반은 QQQ를 항상 보유, 반은 TQQQ를 200일선 위일 때만 보유(아래면 현금). 매일 반반으로 맞춘다고 가정. 10% 묻어두기: 매도 카드로 팔 때 총 성적이 수익이면 최초 물량의 10%를 끝까지 보유(5종목 미포함), 새 매수 비중은 묻어 둔 물량을 뺀 자산 기준.</li>
+<li>최악 10년: 종목 매매는 그대로 두고 남는 돈 지수 경로만 2000-03-10부터로 바꿈(같은 시기 종목 폭락은 미반영). 합성 3배는 나스닥100 하루 수익률 3배 - (연 0.95% + 2 × 3개월 국채 금리), QQQ는 나스닥100 - 연 0.2%(배당 미반영).</li>
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
@@ -576,8 +581,8 @@ def main():
         o, c = x['o'].astype(float)[pos], x['c'].astype(float)[pos]
         return np.where(np.isfinite(o) & (x['d'][pos] == CAL), o, c), c
     names = {kw.get('idx', 'SPY') for _, _, kw in STRATEGIES.values()} | {'QQQ'}
-    SYN = {'NDX3', 'NDX1', 'SPX1'}
-    px_idx = {n: idx_px(n) for n in names - SYN}
+    SYN = {'NDX3', 'NDX1', 'SPX1', 'NDX3F', 'MIXF'}
+    px_idx = {n: idx_px(n) for n in names - SYN - {'MIX'}}
     syn_ok = {}
     for n in names & SYN:   # 최악 10년 구간 시작일부터의 지수 경로를 2013년부터의 거래일에 그대로 덮어씌움
         import stress_tqqq
@@ -589,6 +594,10 @@ def main():
     qma = np.convolve(qc['c'].astype(float), np.ones(200) / 200, 'valid')
     qok = dict(zip(qc['d'][199:].tolist(), (qc['c'][199:] >= qma).tolist()))
     q_ok = np.array([qok.get(int(d), True) for d in CAL])
+    if 'MIX' in names:   # 실제 QQQ 반 + TQQQ 반(QQQ 200일선 아래면 그 반은 현금)
+        import stress_tqqq
+        (Oq, Cq), (Ot, Ct) = idx_px('QQQ'), idx_px('TQQQ')
+        px_idx['MIX'] = stress_tqqq.mix(Oq, Cq, Ot, Ct, q_ok)
     for b in books.values():
         o_, c_ = px_idx[b.idx]
         b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
