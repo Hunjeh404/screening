@@ -40,6 +40,11 @@ jobs:
         run: python -u scripts/stress_tqqq.py
       - name: Backtest
         run: python -u scripts/backtest.py
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/bt
+          key: bt-data-${{ github.run_id }}-${{ github.run_attempt }}-after
       - name: Publish report
         run: |
           git config user.name "github-actions"

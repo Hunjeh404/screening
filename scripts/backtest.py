@@ -28,13 +28,9 @@ COST = .001            # 편도 거래 비용
 _B = dict(spy=True, pause=False)
 _T = dict(_B, idx='TQQQ', idx_ma=True)
 _O = dict(_T, idx_open=True)
-_V = {'open': ('우수전략 · 남는 돈 TQQQ·200일선', True, _O),
-      'q': ('남는 돈 QQQ', True, dict(_O, idx='QQQ', idx_ma=False)),
-      'mix': ('남는 돈 QQQ 반 + TQQQ·200일선 반', True, dict(_O, idx='MIX', idx_ma=False)),
-      'keep': ('우수전략 + 수익이면 10% 묻어두기', True, dict(_O, keep=.1)),
-      'sf': ('최악 10년 · TQQQ(합성 3배, 차입비용)·200일선', True, dict(_O, idx='NDX3F')),
-      'sq': ('최악 10년 · QQQ', True, dict(_O, idx='NDX1', idx_ma=False)),
-      'smix': ('최악 10년 · QQQ 반 + TQQQ(차입비용)·200일선 반', True, dict(_O, idx='MIXF', idx_ma=False))}
+_O = dict(_T, idx_open=True)
+_V = {'open': ('우수전략 · 손절률·수익률 순', True, _O),
+      'sector': ('우수전략 · 섹터 종목 수 우선', True, dict(_O, sector_rank=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -188,7 +184,9 @@ class Book:
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
-                 keep=0.0, idx_open=False, card_px=False):
+                 keep=0.0, idx_open=False, card_px=False, sector_rank=False):
+        # sector_rank: 같은 날 여러 종목이면 저평가(매수 카드) 전체에서 종목이 가장 많은 섹터 순, 같은 수면 섞어서 기존 순서
+        self.sector_rank, self.sector = sector_rank, {}
         # card_px: 손절·목표가를 매수가가 아니라 카드에 뜬 날 종가 기준 가격으로
         self.card_px = card_px
         # idx_open: 지수 매매(남는 돈 매수, 200일선 매도·매수)를 종가 대신 다음 날 시가에
@@ -399,6 +397,9 @@ class Book:
         new = sorted((cards[t] for t in newly if t not in self.pos and t not in waiting
                       and cards[t]['metrics']['expected_loss'] is not None),
                      key=lambda s: (abs(s['metrics']['expected_loss']), -s['metrics']['target_1']))
+        if self.sector_rank:
+            cnt = Counter(self.sector.get(t, '미분류') for t, c in cards.items() if c.get('state') == 'BUY')
+            new.sort(key=lambda s: -cnt[self.sector.get(s['code'], '미분류')])   # 안정 정렬: 같은 수면 기존 순서
         for s in new[:max(free, 0)]:
             added, m, c = signal(s['code']), s['metrics'], s.get('close')
             if (self.regime and not self.mkt_ok) or (self.entry == 'sigonly' and not added):
@@ -540,14 +541,46 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 초강세 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>QQQ 반 + TQQQ 반: 남는 돈의 반은 QQQ를 항상 보유, 반은 TQQQ를 200일선 위일 때만 보유(아래면 현금). 매일 반반으로 맞춘다고 가정. 10% 묻어두기: 매도 카드로 팔 때 총 성적이 수익이면 최초 물량의 10%를 끝까지 보유(5종목 미포함), 새 매수 비중은 묻어 둔 물량을 뺀 자산 기준.</li>
-<li>최악 10년: 종목 매매는 그대로 두고 남는 돈 지수 경로만 2000-03-10부터로 바꿈(같은 시기 종목 폭락은 미반영). 합성 3배는 나스닥100 하루 수익률 3배 - (연 0.95% + 2 × 3개월 국채 금리), QQQ는 나스닥100 - 연 0.2%(배당 미반영).</li>
+<li>섹터 종목 수 우선: 같은 날 여러 종목이면 그날 매수 카드(저평가) 전체에서 종목이 가장 많은 섹터의 종목부터, 종목 수가 같은 섹터끼리는 섞어서 손절률 낮은 순·1차 목표 수익률 높은 순. 섹터는 현재 야후 분류를 과거에도 씀, 분류 없는 종목은 '미분류' 한 섹터로 셈.</li>
+
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''
     open('docs/backtest.html', 'w', encoding='utf-8').write(html)
     return lines
+
+
+def load_sectors(tickers):
+    """야후 섹터(현재 분류를 과거에도 씀). 일일 캐시 + 백테스트 캐시, 없으면 조회해 data/bt/sector.json에 저장"""
+    import time
+    import yfinance as yf
+    p = f'{BT}/sector.json'
+    cache = {}
+    for f in ('data/cache/sector.json', p):
+        if os.path.exists(f):
+            cache.update(json.load(open(f, encoding='utf-8')))
+    todo = [t for t in tickers if t not in cache]
+    print('섹터 조회', len(todo), '종목', flush=True)
+    for i, t in enumerate(todo):
+        for wait in (0, 30, 90):
+            time.sleep(wait)
+            try:
+                sec = yf.Ticker(t).info.get('sector')
+            except Exception:
+                sec = None
+            if sec:
+                cache[t] = sec
+                break
+        else:
+            cache[t] = None   # 조회 실패도 기록해 다음 실행에서 다시 묻지 않음
+        time.sleep(.4)
+        if i % 100 == 99:
+            json.dump(cache, open(p, 'w', encoding='utf-8'))
+    json.dump(cache, open(p, 'w', encoding='utf-8'))
+    got = {t: cache[t] for t in tickers if cache.get(t)}
+    print('섹터 확보', len(got), '/', len(tickers), flush=True)
+    return got
 
 
 def main():
@@ -562,6 +595,7 @@ def main():
     with Pool() as pool:
         cos = [x for x in pool.imap_unordered(prepare, jobs, chunksize=8) if x]
     print('준비 완료', len(cos), '종목', flush=True)
+    sectors = load_sectors([co['t'] for co in cos]) if any(kw.get('sector_rank') for _, _, kw in STRATEGIES.values()) else {}
 
     # 앱과 같은 판정 코드를 쓰되, 주봉 OBV는 미리 계산한 판정을 쓰고 이력 스냅숏은 얕은 복사로 둔다(속도)
     cr.obv_signal = lambda w: w
@@ -575,6 +609,8 @@ def main():
     quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
     histories = {ma: {} for ma in {v[1] for v in STRATEGIES.values()}}
     books = {key: Book(**{'exits': 'ts12', **kw}) for key, (_, _, kw) in STRATEGIES.items()}
+    for b in books.values():
+        b.sector = sectors
     def idx_px(name):   # 거래일 달력에 맞춘 (시가, 종가), 빈 날은 직전 값
         x = np.load(f'{BT}/px/{name}.npz')
         pos = np.clip(np.searchsorted(x['d'], CAL, 'right') - 1, 0, None)

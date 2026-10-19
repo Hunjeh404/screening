@@ -282,6 +282,16 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(p['stop'], 95)
         self.assertAlmostEqual(p['tp1'], 110)
 
+    def test_sector_priority(self):
+        cards = {'A': card('A', loss=-3, t1=10), 'B': card('B', loss=-6, t1=10), 'C': card('C', loss=-7, t1=10),
+                 'D': card('D', loss=-4, t1=10), 'E': card('E', state='BUY')}
+        sec = {'A': '금융', 'B': '정보기술', 'C': '정보기술', 'D': '헬스케어', 'E': '헬스케어'}
+        b = bt.Book(2, cost=0, sector_rank=True)
+        b.sector = sec
+        self.run_days(b, [({}, cards, ['A', 'B', 'C', 'D']), ({t: (10, 10, 10, 10) for t in 'ABCD'}, cards, [])])
+        # 정보기술 2·헬스케어 2(E 포함)·금융 1 -> 2개짜리 섞어서 손절률 순: D(-4) > B(-6) > C(-7), 금융 A는 뒤
+        self.assertEqual(sorted(b.pos), ['B', 'D'])
+
 
 if __name__ == '__main__':
     unittest.main()
