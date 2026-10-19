@@ -310,6 +310,20 @@ class BookTest(unittest.TestCase):
         self.assertTrue(bt.sel_elig({**base, 'close': 80}, 'ma'))
         self.assertTrue(bt.sel_elig({**base, 'roe3': 1}, 'fund'))
 
+    def test_turnaround_card_only(self):
+        ta = lambda **kw: {'A': {**card('A', loss=-3, close=100, **kw), 'op_ttm_value': -1, 'rev_q': True, 'rev_ttm': True}}
+        b = bt.Book(5, cost=0, ta_mode='card')
+        self.run_days(b, [({}, ta(), ['A']), ({'A': (100, 100, 100, 100)}, ta(), []),
+                          ({'A': (90, 91, 80, 85)}, ta(), [])])          # 손절선 아래로 빠져도 유지
+        self.assertIn('A', b.pos)
+        self.run_days(b, [({'A': (85, 85, 85, 85)}, ta(state='SELL'), []), ({'A': (84, 84, 84, 84)}, {}, [])])
+        self.assertEqual(b.pos, {})
+        b = bt.Book(5, cost=0, ta_mode='normal')
+        st = {**card('A', loss=-3, close=100), 'op_ttm_value': -1, 'rev_q': True, 'rev_ttm': True, 'ma120': 90, 'ma200': 85,
+              'per': None, 'mcap_b': 1}
+        self.run_days(b, [({}, {'A': st}, ['A']), ({'A': (100, 100, 100, 100)}, {'A': st}, [])])
+        self.assertLess(b.pos['A']['stop'], 95.01)   # 턴어라운드 -3%가 아니라 일반 기준(최소 -5%)
+
 
 if __name__ == '__main__':
     unittest.main()
