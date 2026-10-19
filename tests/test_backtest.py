@@ -274,6 +274,14 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(b.curve[2], .8)                              # 전날 이탈 -> 시가 80에 매도
         self.assertAlmostEqual(b.curve[3], .8)                              # 전날 회복 -> 시가 99에 매수
 
+    def test_card_price_levels(self):
+        b = bt.Book(5, cost=0, card_px=True)
+        self.run_days(b, [({}, {'A': card('A', close=100)}, ['A']), ({'A': (104, 105, 103, 104)}, {'A': card('A', close=104)}, [])])
+        p = b.pos['A']
+        self.assertEqual(p['entry'], 104)
+        self.assertAlmostEqual(p['stop'], 95)
+        self.assertAlmostEqual(p['tp1'], 110)
+
 
 if __name__ == '__main__':
     unittest.main()

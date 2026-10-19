@@ -28,7 +28,9 @@ COST = .001            # 편도 거래 비용
 _B = dict(spy=True, pause=False)
 _T = dict(_B, idx='TQQQ', idx_ma=True)
 _V = {'base': ('우수전략 · TQQQ 종가 매매', True, _T),
-      'open': ('우수전략 · TQQQ 다음 날 시가 매매', True, dict(_T, idx_open=True))}
+      'open': ('우수전략 · TQQQ 다음 날 시가 매매', True, dict(_T, idx_open=True)),
+      'cbase': ('카드가 기준 손절·익절 · TQQQ 종가 매매', True, dict(_T, card_px=True)),
+      'copen': ('카드가 기준 손절·익절 · TQQQ 다음 날 시가 매매', True, dict(_T, card_px=True, idx_open=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -182,7 +184,9 @@ class Book:
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
-                 keep=0.0, idx_open=False):
+                 keep=0.0, idx_open=False, card_px=False):
+        # card_px: 손절·목표가를 매수가가 아니라 카드에 뜬 날 종가 기준 가격으로
+        self.card_px = card_px
         # idx_open: 지수 매매(남는 돈 매수, 200일선 매도·매수)를 종가 대신 다음 날 시가에
         self.idx_open = idx_open
         # keep: 매도 카드 매도 시 그 종목 총 성적이 수익이면 최초 물량의 keep만큼은 팔지 않고 끝까지 보유(슬롯 미포함)
@@ -394,7 +398,12 @@ class Book:
             added, m, c = signal(s['code']), s['metrics'], s.get('close')
             if (self.regime and not self.mkt_ok) or (self.entry == 'sigonly' and not added):
                 continue
-            if self.entry in ('open', 'wait', 'wait_sig', 'sigonly'):
+            if self.entry == 'open' and self.card_px:
+                orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
+                               'added': added, 'metrics': m,
+                               'levels': {'stop': c * (1 + m['expected_loss'] / 100), 'tp1': c * (1 + m['target_1'] / 100),
+                                          'tp2': c * (1 + m['target_2'] / 100), 'trail': m['expected_loss']}})
+            elif self.entry in ('open', 'wait', 'wait_sig', 'sigonly'):
                 orders.append({'side': 'buy', 't': s['code'], 'value': eq * (self.first + (self.add if added else 0)),
                                'added': added, 'metrics': m,
                                **({'levels': self.card0[s['code']], 'below': self.card_lv} if s['code'] in self.card0 else {})})
@@ -525,7 +534,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 초강세 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
-<li>TQQQ 다음 날 시가 매매: 남는 돈의 TQQQ 매수와 QQQ 200일선 판정에 따른 매도·매수를 그날 종가가 아니라 다음 날 시가에 함(종목 매매 후 남은 현금 기준).</li>
+<li>카드가 기준: 손절·1차·2차 목표가를 실제 매수가가 아니라 카드에 뜬 날 종가에 퍼센트를 적용한 가격으로 둠(매수 시가가 손절가 이하면 그날 손절). TQQQ 다음 날 시가 매매: 남는 돈의 TQQQ 매수와 QQQ 200일선 판정에 따른 매도·매수를 그날 종가가 아니라 다음 날 시가에 함(종목 매매 후 남은 현금 기준).</li>
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
