@@ -25,12 +25,12 @@ START = '2013-01-01'
 COST = .001            # 편도 거래 비용
 # 전략: (이름, 이평선 조건 사용, Book 설정). 모두 공시지연 X·1차 50%/2차 25% TS, 손절선 항상 유지, 초강세에 TS 쉼
 # 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
-_W = dict(spy=True, pause=False, entry='wait_sig', add=0)
-_V = {'nop_s': ('1 우수전략(초강세에도 TS) · 남는 돈 SPY', True, dict(spy=True, pause=False)),
-      'w30r': ('2 ▲ 대기 30% · 손절선 아래면 재계산', True, dict(_W, first=.3, card_lv='recalc')),
-      'w30k': ('2 ▲ 대기 30% · 손절선 아래면 취소', True, dict(_W, first=.3, card_lv='skip')),
-      'w20r': ('3 ▲ 대기 20% · 손절선 아래면 재계산', True, dict(_W, first=.2, card_lv='recalc')),
-      'w20k': ('3 ▲ 대기 20% · 손절선 아래면 취소', True, dict(_W, first=.2, card_lv='skip'))}
+_B = dict(spy=True, pause=False)
+_V = {'nop_s': ('1 우수전략 · 남는 돈 SPY', True, _B),
+      'qqq': ('남는 돈 QQQ', True, dict(_B, idx='QQQ')),
+      'tqqq': ('남는 돈 TQQQ', True, dict(_B, idx='TQQQ')),
+      'qqq_m': ('남는 돈 QQQ · 200일선 위만', True, dict(_B, idx='QQQ', idx_ma=True)),
+      'tqqq_m': ('남는 돈 TQQQ · 200일선 위만', True, dict(_B, idx='TQQQ', idx_ma=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -183,12 +183,14 @@ class Book:
     ts=False: 목표가에 닿으면 그 가격에 바로 판다(1차 50%, 2차 남은 물량의 50%)."""
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
-                 pause=True, regime=False, breakeven=False, spy=False, card_lv=None):
+                 pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False):
         # card_lv(wait_sig): 손절·목표가를 카드가 처음 뜬 날 종가 기준 가격으로. 매수 시가가 그 손절가 이하면
         #   'recalc': 매수가 기준으로 다시 계산, 'skip': 사지 않고 대기 취소
         self.card_lv, self.card0 = card_lv, {}
         # spy: 남는 현금을 SPY로 들고 있다가 매수 자금이 모자라면 시가에 필요한 만큼 판다 (spy_bar: k -> (시가, 종가))
         self.spy, self.spy_sh, self.spy_bar = spy, 0.0, None
+        # idx: 남는 돈으로 살 지수(SPY·QQQ·TQQQ). idx_ma: QQQ 종가가 200일선 아래면 지수를 팔고 현금 보유
+        self.idx, self.idx_ma, self.idx_ok = idx, idx_ma, None
         # entry 'wait': 매수 카드에 오른 뒤 ▲ 또는 초강세가 확인되면 다음 날 시가 (기다리는 종목은 슬롯 미포함)
         # pause: 초강세 구간에 트레일링 스탑을 쉼. regime: SPY가 200일선 아래면 신규 매수 안 함
         # breakeven: 1차 목표가 도달 후 손절가를 매수가로 올림
@@ -316,7 +318,11 @@ class Book:
             card = cards.get(t)
             p['bull'] = bool(card and card['hunbot'].get('super_bull'))
         value = sum(p['sh'] * p['last'] for p in self.pos.values())
-        if self.spy and self.cash > 0:   # 남는 현금은 종가에 SPY 매수
+        ok = not self.idx_ma or self.idx_ok(k)
+        if self.spy and self.spy_sh and not ok:   # 200일선 아래: 종가에 지수 전량 매도
+            self.cash += self.spy_sh * self.spy_bar(k)[1] * (1 - self.cost)
+            self.spy_sh = 0.0
+        if self.spy and self.cash > 0 and ok:   # 남는 현금은 종가에 지수 매수
             c = self.spy_bar(k)[1]
             self.spy_sh += self.cash / (c * (1 + self.cost))
             self.cash = 0.0
@@ -493,8 +499,8 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>규칙과 한계</h2><ul>
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
-<li>1 우수전략: 초강세 구간에도 트레일링 스탑을 쉬지 않음. 2·3: 매수 카드에 오른 뒤 훈봇 ▲가 뜨면 다음 날 시가에 30%·20%(추가 매수 없음, 기다리는 종목은 5종목에 미포함, 매수 카드에서 빠지면 취소). 손절·목표가는 카드가 처음 뜬 날 종가 기준 가격. 매수 시가가 그 손절가 이하면 매수가 기준으로 다시 계산하거나, 사지 않고 취소.</li>
-<li>남는 돈 SPY: 남는 현금은 그날 종가에 SPY를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 SPY를 팖(편도 비용 동일).</li>
+<li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 초강세 구간에도 트레일링 스탑을 쉬지 않음.</li>
+<li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''
@@ -527,9 +533,20 @@ def main():
     quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
     histories = {ma: {} for ma in {v[1] for v in STRATEGIES.values()}}
     books = {key: Book(exits='ts12', **kw) for key, (_, _, kw) in STRATEGIES.items()}
-    so = z['o'][i0:].astype(float)
+    def idx_px(name):   # 거래일 달력에 맞춘 (시가, 종가), 빈 날은 직전 값
+        x = np.load(f'{BT}/px/{name}.npz')
+        pos = np.clip(np.searchsorted(x['d'], CAL, 'right') - 1, 0, None)
+        o, c = x['o'].astype(float)[pos], x['c'].astype(float)[pos]
+        return np.where(np.isfinite(o) & (x['d'][pos] == CAL), o, c), c
+    px_idx = {n: idx_px(n) for n in {kw.get('idx', 'SPY') for _, _, kw in STRATEGIES.values()} | {'QQQ'}}
+    qc = np.load(f'{BT}/px/QQQ.npz')
+    qma = np.convolve(qc['c'].astype(float), np.ones(200) / 200, 'valid')
+    qok = dict(zip(qc['d'][199:].tolist(), (qc['c'][199:] >= qma).tolist()))
+    q_ok = np.array([qok.get(int(d), True) for d in CAL])
     for b in books.values():
-        b.spy_bar = lambda k: (float(so[k]) if np.isfinite(so[k]) else float(spy[k]), float(spy[k]))
+        o_, c_ = px_idx[b.idx]
+        b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
+        b.idx_ok = lambda k: bool(q_ok[k])
     zc = z['c'].astype(float)
     ma200 = np.convolve(zc, np.ones(200) / 200, 'valid')
     spy_ok = np.concatenate([np.ones(199, bool), zc[199:] >= ma200])[i0:]

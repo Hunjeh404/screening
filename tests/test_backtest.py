@@ -240,6 +240,15 @@ class BookTest(unittest.TestCase):
         self.assertEqual(b.pos, {})
         self.assertAlmostEqual(b.cash, 1)
 
+    def test_index_below_200ma_goes_cash(self):
+        b = bt.Book(5, cost=0, spy=True, idx_ma=True)
+        px, ok = [(100, 100), (100, 90), (90, 99)], [True, False, True]
+        b.spy_bar, b.idx_ok = (lambda k: px[k]), (lambda k: ok[k])
+        self.run_days(b, [({}, {}, [])] * 3)
+        self.assertAlmostEqual(b.curve[1], .9)                               # 200일선 아래: 종가 90에 매도
+        self.assertEqual(b.spy_sh * 99, b.curve[2])                          # 다시 위: 종가 99에 매수
+        self.assertAlmostEqual(b.curve[2], .9)
+
 
 if __name__ == '__main__':
     unittest.main()

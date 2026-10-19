@@ -55,7 +55,7 @@ if not os.path.exists(f'{OUT}/facts/.done'):
 print('재무', len(os.listdir(f'{OUT}/facts')) - 1, flush=True)
 
 # 2) 일봉: 분할 반영 가격(배당 미반영), 분할 비율 포함
-tickers = sorted({v['ticker'] for v in listing.values()} | {'SPY'})
+tickers = sorted({v['ticker'] for v in listing.values()} | {'SPY', 'QQQ', 'TQQQ'})
 todo = [t for t in tickers if not os.path.exists(f'{OUT}/px/{t}.npz')]
 EPOCH = np.datetime64('1970-01-01')
 for i in range(0, len(todo), 100):
