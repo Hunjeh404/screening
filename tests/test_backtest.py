@@ -195,6 +195,18 @@ class BookTest(unittest.TestCase):
         self.run_days(b, days[:4])
         self.assertNotIn('1차 TS매도', b.pos['A']['events'])
 
+    def test_idle_cash_in_spy(self):
+        b = bt.Book(5, cost=0, spy=True)
+        spy = [(100, 100), (100, 110), (110, 110)]                          # SPY (시가, 종가)
+        b.spy_bar = lambda k: spy[k]
+        self.run_days(b, [({}, {'A': card('A')}, ['A']),                      # 종가 100에 현금 전부 SPY
+                          ({'A': (10, 10, 10, 10)}, {'A': card('A')}, []),    # 시가 100에 20%만큼 팔고 A 매수
+                          ({'A': (10, 10, 10, 10)}, {'A': card('A')}, [])])
+        self.assertAlmostEqual(b.pos['A']['spent'], .2)
+        self.assertAlmostEqual(b.spy_sh * 110, .8 * 1.1)
+        self.assertAlmostEqual(b.curve[-1], .2 + .88)
+        self.assertEqual(b.cash, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

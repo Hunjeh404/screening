@@ -23,13 +23,12 @@ from hunbot import daily_signals
 BT = 'data/bt'
 START = '2013-01-01'
 COST = .001            # 편도 거래 비용
-# 전략: (이동평균 조건 사용, 목표가 트레일링 스탑 사용). 모두 최대 5종목, 매수 20% + ▲ 10%
-# 전략: 모두 이평선 O·공시지연 X·1차 50%/2차 25% TS, 최대 5종목, 매수 20%(추가매수 없음), 손절선 항상 유지
-# 기본 3가지(1 신호 무관 20% / 2 훈봇 무관 / 3 ▲·초강세 확인 후 매수) × (그대로 / SPY 200일선 필터 / 1차 후 본전 손절)
-BASES = {'v1': ('1 신호 무관 20%', dict()), 'v2': ('2 훈봇 무관', dict(pause=False)),
-         'v3': ('3 ▲·초강세 확인 후', dict(entry='wait'))}
-EXTRAS = {'': ('', dict()), 'r': (' · SPY 200일선', dict(regime=True)), 'b': (' · 1차 후 본전손절', dict(breakeven=True))}
-STRATEGIES = {b + e: (bn + en, {**bk, **ek}) for b, (bn, bk) in BASES.items() for e, (en, ek) in EXTRAS.items()}
+# 전략: (이름, 이평선 조건 사용, Book 설정). 모두 공시지연 X·1차 50%/2차 25% TS, 손절선 항상 유지, 초강세에 TS 쉼
+# 우수전략: 최대 5종목, 매수 20% + ▲ 10%. spy: 남는 현금은 SPY로 보유
+_V = {'base': ('우수전략', True, dict()), 'w30': ('처음 30%·추가 없음', True, dict(first=.3, add=0)),
+      'noma': ('이평선 X·10종목·10%+▲10%', False, dict(slots=10, first=.1, add=.1))}
+STRATEGIES = {k + e: (n + en, ma, {**kw, **ek}) for k, (n, ma, kw) in _V.items()
+              for e, (en, ek) in (('', ('', {})), ('_s', (' · 남는 돈 SPY', dict(spy=True))))}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
@@ -181,7 +180,9 @@ class Book:
     ts=False: 목표가에 닿으면 그 가격에 바로 판다(1차 50%, 2차 남은 물량의 50%)."""
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
-                 pause=True, regime=False, breakeven=False):
+                 pause=True, regime=False, breakeven=False, spy=False):
+        # spy: 남는 현금을 SPY로 들고 있다가 매수 자금이 모자라면 시가에 필요한 만큼 판다 (spy_bar: k -> (시가, 종가))
+        self.spy, self.spy_sh, self.spy_bar = spy, 0.0, None
         # entry 'wait': 매수 카드에 오른 뒤 ▲ 또는 초강세가 확인되면 다음 날 시가 (기다리는 종목은 슬롯 미포함)
         # pause: 초강세 구간에 트레일링 스탑을 쉼. regime: SPY가 200일선 아래면 신규 매수 안 함
         # breakeven: 1차 목표가 도달 후 손절가를 매수가로 올림
@@ -240,6 +241,12 @@ class Book:
         for o in orders:
             if o['side'] == 'sell' and o['t'] in self.pos and bar(o['t']):
                 self._sell(o['t'], float('inf'), bar(o['t'])[0], k, o['why'])
+        need = sum(o['value'] for o in orders if o['side'] == 'buy' and bar(o['t']))
+        if self.spy and self.spy_sh and need > self.cash:
+            op = self.spy_bar(k)[0]
+            q = min(self.spy_sh, (need - self.cash) / (op * (1 - self.cost)))
+            self.spy_sh -= q
+            self.cash += q * op * (1 - self.cost)
         for o in orders:
             if o['side'] == 'buy' and bar(o['t']):
                 self._buy(o, bar(o['t'])[0], k)
@@ -297,7 +304,11 @@ class Book:
             card = cards.get(t)
             p['bull'] = bool(card and card['hunbot'].get('super_bull'))
         value = sum(p['sh'] * p['last'] for p in self.pos.values())
-        eq = self.cash + value
+        if self.spy and self.cash > 0:   # 남는 현금은 종가에 SPY 매수
+            c = self.spy_bar(k)[1]
+            self.spy_sh += self.cash / (c * (1 + self.cost))
+            self.cash = 0.0
+        eq = self.cash + value + (self.spy_sh * self.spy_bar(k)[1] if self.spy else 0)
         self.last_eq = eq
         self.curve.append(eq)
         self.invested.append(value / eq if eq else 0)
@@ -461,10 +472,10 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h2>자산 곡선 (로그 축)</h2><div class="box"><div class="legend">{legend}</div><svg viewBox="0 0 {W} {H}">{"".join(paths)}</svg></div>
 <h2>연도별 수익률</h2><div class="box"><table>{ytable}</table></div>
 <h2>규칙과 한계</h2><ul>
-<li>공통: 최대 5종목, 이평선 조건 사용, 공시지연 미사용, 매수는 자산의 20%(추가 매수 없음). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
-<li>1 신호 무관 20%: 매수 카드에 오르면 다음 날 시가 매수. 2 훈봇 무관: 1과 같고 초강세 구간에도 트레일링 스탑을 쉬지 않음. 3 ▲·초강세 확인 후: 매수 카드 상태에서 훈봇 ▲ 또는 초강세가 확인된 다음 날 시가 매수(기다리는 종목은 5종목에 미포함, 매수 카드에서 빠지면 취소).</li>
-<li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 1·3은 초강세 구간에서 트레일링 스탑을 쉼.</li>
-<li>SPY 200일선: SPY 종가가 200일선 아래면 신규 매수 안 함. 1차 후 본전손절: 1차 목표가 도달 후 손절가를 매수가로 올림.</li>
+<li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
+<li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도. 초강세 구간에서는 트레일링 스탑을 쉼.</li>
+<li>처음 30%·추가 없음: 매수 카드에 오르면 30%를 한 번에 사고 ▲ 추가 매수 없음(현금이 모자라면 남은 만큼). 이평선 X·10종목: 매수·매도에서 이평선 조건을 빼고 최대 10종목, 처음 10% + ▲ 10%.</li>
+<li>남는 돈 SPY: 남는 현금은 그날 종가에 SPY를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 SPY를 팖(편도 비용 동일).</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
 <li>재무는 공시 다음 거래일부터 반영. 현재 상장 종목만 대상이라 상장폐지 종목이 빠진 생존 편향이 있어 결과가 실제보다 좋게 나올 수 있음.</li>
 </ul></div></body></html>'''
@@ -495,12 +506,14 @@ def main():
     index = {co['t']: ci for ci, co in enumerate(cos)}
     cur, rec, started = [None] * len(cos), set(), False
     quarters = Counter()   # 종목별 최신 재무 분기 분포 -> 최빈 분기가 공시지연 기준
-    histories = {False: {}}
-    books = {key: Book(exits='ts12', add=0, **kw) for key, (_, kw) in STRATEGIES.items()}
+    histories = {ma: {} for ma in {v[1] for v in STRATEGIES.values()}}
+    books = {key: Book(exits='ts12', **kw) for key, (_, _, kw) in STRATEGIES.items()}
+    so = z['o'][i0:].astype(float)
+    for b in books.values():
+        b.spy_bar = lambda k: (float(so[k]) if np.isfinite(so[k]) else float(spy[k]), float(spy[k]))
     zc = z['c'].astype(float)
     ma200 = np.convolve(zc, np.ones(200) / 200, 'valid')
     spy_ok = np.concatenate([np.ones(199, bool), zc[199:] >= ma200])[i0:]
-    cr.USE_MA = True
     for k in range(len(CAL)):
         for ci, snap in events.get(k, ()):
             if cur[ci]:
@@ -519,8 +532,8 @@ def main():
         base = [s for ci in rec | held if started and cur[ci] and (s := build(cos[ci], cur[ci], k))]
         for s in base:
             s['stale'] = s['latest_q'] < fresh
-        for stale, history in histories.items():   # 공시지연 켬/끔은 카드 상태가 달라지므로 따로 추적
-            cr.USE_STALE = stale
+        for ma, history in histories.items():   # 이평선 조건 켬/끔은 카드 상태가 달라지므로 따로 추적
+            cr.USE_MA = ma
             stocks = [dict(s) for s in base]
             cr.update_history(stocks, history, 'us', f'{day} 08:00')
             cards, newly = {}, []
@@ -530,12 +543,13 @@ def main():
                     last = (s.get('history') or {}).get('transitions') or [{}]
                     if s['state'] == 'BUY' and last[-1].get('to') == 'BUY' and last[-1].get('date') == day:
                         newly.append(s['code'])
-            for b in books.values():
-                b.mkt_ok = bool(spy_ok[k])
-                b.evening(k, bar, cards, newly)
+            for key, b in books.items():
+                if STRATEGIES[key][1] == ma:
+                    b.mkt_ok = bool(spy_ok[k])
+                    b.evening(k, bar, cards, newly)
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
-    cr.USE_STALE = False
+    cr.USE_MA = True
     for line in report({STRATEGIES[key][0]: b for key, b in books.items()}, spy, CAL):
         print('::warning title=backtest::' + line)
 
