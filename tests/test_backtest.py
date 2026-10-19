@@ -292,6 +292,13 @@ class BookTest(unittest.TestCase):
         # 정보기술 2·헬스케어 2(E 포함)·금융 1 -> 2개짜리 섞어서 손절률 순: D(-4) > B(-6) > C(-7), 금융 A는 뒤
         self.assertEqual(sorted(b.pos), ['B', 'D'])
 
+    def test_index_cap(self):
+        b = bt.Book(5, cost=0, spy=True, idx_ma=True, idx_open=True, idx_cap=.5)
+        b.spy_bar, b.idx_ok = (lambda k: (100, 100)), (lambda k: True)
+        self.run_days(b, [({}, {}, [])] * 3)
+        self.assertAlmostEqual(b.spy_sh * 100, .5)
+        self.assertAlmostEqual(b.cash, .5)
+
 
 if __name__ == '__main__':
     unittest.main()

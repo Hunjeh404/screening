@@ -29,8 +29,14 @@ _B = dict(spy=True, pause=False)
 _T = dict(_B, idx='TQQQ', idx_ma=True)
 _O = dict(_T, idx_open=True)
 _O = dict(_T, idx_open=True)
-_V = {'open': ('우수전략 · 손절률·수익률 순', True, _O),
-      'sector': ('우수전략 · 섹터 종목 수 우선', True, dict(_O, sector_rank=True))}
+_R = dict(first=.15, add=.075, slots=6)
+_V = {'open': ('우수전략', True, _O),
+      'cash': ('기준선: 종목만 · 남는 돈 현금', True, dict(_O, spy=False)),
+      'tq': ('기준선: TQQQ만 · 200일선', True, dict(_O, slots=0)),
+      'cap': ('TQQQ 최대 50%', True, dict(_O, idx_cap=.5)),
+      'size': ('종목 15%+▲7.5% · 6종목', True, dict(_O, **_R)),
+      'buf': ('200일선 ±1.5% 버퍼', True, dict(_O, idx_buf=True)),
+      'all': ('TQQQ 50% + 15%·6종목 + 버퍼', True, dict(_O, idx_cap=.5, idx_buf=True, **_R))}
 STRATEGIES = {k: v for k, v in _V.items()}
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
@@ -184,7 +190,9 @@ class Book:
 
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
-                 keep=0.0, idx_open=False, card_px=False, sector_rank=False):
+                 keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False):
+        # idx_cap: 지수(TQQQ) 보유를 총자산의 이 비율까지만(넘는 현금은 현금으로). idx_buf: 200일선 ±1.5% 버퍼
+        self.idx_cap, self.idx_buf = idx_cap, idx_buf
         # sector_rank: 같은 날 여러 종목이면 저평가(매수 카드) 전체에서 종목이 가장 많은 섹터 순, 같은 수면 섞어서 기존 순서
         self.sector_rank, self.sector = sector_rank, {}
         # card_px: 손절·목표가를 매수가가 아니라 카드에 뜬 날 종가 기준 가격으로
@@ -289,8 +297,9 @@ class Book:
                 self.cash += self.spy_sh * op * (1 - self.cost)
                 self.spy_sh = 0.0
             elif self.cash > 0:
-                self.spy_sh += self.cash / (op * (1 + self.cost))
-                self.cash = 0.0
+                amt = self.cash if self.idx_cap is None else min(self.cash, max(0.0, self.idx_cap * self.last_eq - self.spy_sh * op))
+                self.spy_sh += amt / (op * (1 + self.cost))
+                self.cash -= amt
         for t in list(self.pending):   # 지정가: 장중 저가가 지정가에 닿으면 그 가격(갭 하락이면 시가)
             o, b = self.pending[t], bar(t)
             if b and b[2] <= o['limit']:
@@ -541,7 +550,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>섹터 종목 수 우선: 같은 날 여러 종목이면 그날 매수 카드(저평가) 전체에서 종목이 가장 많은 섹터의 종목부터, 종목 수가 같은 섹터끼리는 섞어서 손절률 낮은 순·1차 목표 수익률 높은 순. 섹터는 현재 야후 분류를 과거에도 씀, 분류 없는 종목은 '미분류' 한 섹터로 셈.</li>
+<li>기준선: 종목만은 남는 돈을 현금으로, TQQQ만은 종목 매매 없이 QQQ 200일선 위에서 TQQQ·아래면 현금. TQQQ 최대 50%: TQQQ 평가액이 총자산의 50%를 넘지 않게 사고 나머지는 현금. 15%·6종목: 처음 15%, ▲ 7.5% 추가, 최대 6종목. 버퍼: QQQ가 200일선보다 1.5% 위로 올라서야 사고, 1.5% 아래로 내려가야 팜.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
@@ -630,6 +639,11 @@ def main():
     qma = np.convolve(qc['c'].astype(float), np.ones(200) / 200, 'valid')
     qok = dict(zip(qc['d'][199:].tolist(), (qc['c'][199:] >= qma).tolist()))
     q_ok = np.array([qok.get(int(d), True) for d in CAL])
+    qc_c, st_, qbuf = qc['c'].astype(float)[199:], True, {}   # ±1.5% 버퍼: 위 1.5% 넘으면 켜고 아래 1.5% 밑이면 끔
+    for d_, c_, m_ in zip(qc['d'][199:].tolist(), qc_c, qma):
+        st_ = c_ >= m_ * 1.015 if not st_ else c_ >= m_ * .985
+        qbuf[d_] = st_
+    q_buf = np.array([qbuf.get(int(d), True) for d in CAL])
     if 'MIX' in names:   # 실제 QQQ 반 + TQQQ 반(QQQ 200일선 아래면 그 반은 현금)
         import stress_tqqq
         (Oq, Cq), (Ot, Ct) = idx_px('QQQ'), idx_px('TQQQ')
@@ -637,7 +651,7 @@ def main():
     for b in books.values():
         o_, c_ = px_idx[b.idx]
         b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
-        okk = syn_ok.get(b.idx, q_ok)
+        okk = syn_ok.get(b.idx, q_buf if b.idx_buf else q_ok)
         b.idx_ok = lambda k, okk=okk: bool(okk[k])
     zc = z['c'].astype(float)
     ma200 = np.convolve(zc, np.ones(200) / 200, 'valid')
