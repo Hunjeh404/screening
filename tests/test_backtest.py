@@ -438,6 +438,14 @@ class BookTest(unittest.TestCase):
         C = {'A': {**card('A'), 'filed_k': 0}, 'B': card('B'), 'D': {**card('D'), 'filed_k': -10}}
         self.run_days(b, [({}, C, ['A', 'B', 'D']), ({t: (100,) * 4 for t in 'ABD'}, {}, [])])
         self.assertEqual(set(b.pos), {'A'})
+    def test_trend_template(self):
+        n = 400
+        c = 50 * 1.004 ** np.arange(n)                 # 꾸준히 오름 -> 템플릿 충족
+        f = bt.price_features(np.arange(n), c * 1.01, c * .99, c, np.ones(n))
+        self.assertEqual(f['tt'][-1], 1)
+        c2 = c.copy(); c2[-30:] = c2[-31] * .7          # 고점 대비 -30% -> 탈락
+        f = bt.price_features(np.arange(n), c2 * 1.01, c2 * .99, c2, np.ones(n))
+        self.assertEqual(f['tt'][-1], 0)
 
 if __name__ == '__main__':
     unittest.main()

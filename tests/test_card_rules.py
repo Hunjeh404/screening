@@ -268,5 +268,13 @@ class HistoryTest(unittest.TestCase):
             self.assertTrue(buy_eligible(s))
         finally:
             card_rules.USE_VO=True
+    def test_trend_template_switch(self):
+        import card_rules
+        s=stock(); self.assertTrue(buy_eligible(s))
+        card_rules.USE_TT=True
+        try:
+            self.assertFalse(buy_eligible(s)); self.assertTrue(buy_eligible({**s,'tt':True}))
+        finally:
+            card_rules.USE_TT=False
 
 if __name__=='__main__':unittest.main()
