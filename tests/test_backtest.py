@@ -371,6 +371,25 @@ class BookTest(unittest.TestCase):
         self.assertEqual(p['events'], ['매수', '1차목표', '1차익절'])
         self.assertAlmostEqual(b.cash, .8 + .001 * 110)
 
+    def test_target_rules_and_weekly_exit(self):
+        g = lambda **kw: {**card('A', loss=-5, t1=10, t2=17), 'per': 10, 'per_med5': 13, **kw}   # 여력 +30%
+        b = bt.Book(5, tgt='val3')
+        self.assertEqual(b._tgt(g())['target_2'], 30.0)
+        self.assertIsNone(b._tgt(g(per_med5=11)))                       # 여력 +10% < 15%
+        b = bt.Book(5, tgt='no7')
+        self.assertEqual(b._tgt(g(per_med5=10.5))['target_2'], 15.0)    # max(5, 15)
+        self.assertIsNone(b._tgt({**g(per_med5=10.5), 'metrics': {'expected_loss': -5, 'target_1': 20, 'target_2': 27}}))
+        b = bt.Book(5, cost=0, add=0, exits='wk1', wk=10)
+        brk = {'on': False}
+        b.wk_break = lambda t, k, n: brk['on']
+        C = {'A': card('A')}
+        self.run_days(b, [({}, C, ['A']), ({'A': (100, 111, 100, 110)}, C, []), ({'A': (110, 130, 110, 125)}, C, [])])
+        self.assertIn('A', b.pos)                                          # 2차 목표가 넘어도 25% TS 없음
+        self.assertNotIn('2차목표', b.pos['A']['events'])
+        brk['on'] = True
+        self.run_days(b, [({'A': (125, 126, 124, 125)}, C, []), ({'A': (124, 124, 124, 124)}, C, [])])
+        self.assertEqual(b.closed[0]['exit'], '10주선 이탈')
+
 
 if __name__ == '__main__':
     unittest.main()

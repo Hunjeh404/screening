@@ -32,12 +32,17 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _V = {'c50': ('지금 전략 (TQQQ 최대 50%)', True, _P),
-      'n1': ('1차 50% 즉시 익절 · 2차 25% TS', True, dict(_P, exits='n1t2')),
+      'no7': ('2차 +7%p 삭제(2차≤1차면 매수 안 함)', True, dict(_P, tgt='no7')),
+      'val3': ('일반 기업: 5년 중앙 PER 여력 ≥ 손절 3배만 · 2차=그 가격', True, dict(_P, tgt='val3')),
+      'wk10': ('1차 50% TS 뒤 나머지는 10주선 이탈 매도', True, dict(_P, exits='wk1', wk=10)),
+      'wk20': ('1차 50% TS 뒤 나머지는 20주선 이탈 매도', True, dict(_P, exits='wk1', wk=20)),
       'cash': ('종목만(현금) · 지금 매도 방식', True, dict(_O, spy=False)),
-      'cash_n1': ('종목만(현금) · 1차 50% 즉시 익절', True, dict(_O, spy=False, exits='n1t2'))}
+      'cash_wk10': ('종목만(현금) · 10주선 단계형', True, dict(_O, spy=False, exits='wk1', wk=10)),
+      'cash_wk20': ('종목만(현금) · 20주선 단계형', True, dict(_O, spy=False, exits='wk1', wk=20))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
-PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
+PLANS = {'wk1': (('t1_done', 't1', .5, '1차', None),),
+         'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
          'n1t2': (('t1_done', 't1', .5, '1차', None, 'now'), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
@@ -192,7 +197,12 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False, fund='cash'):
+                 only_ta=False, fund='cash', tgt=None, wk=None):
+        # tgt: 'no7' 2차 = max(가치 회복 여력, 손절률 3배)이고 2차가 1차 이하면 매수 안 함
+        #      'val3' 일반 기업은 5년 중앙 PER까지 여력이 손절률 3배 이상일 때만 매수, 2차 = 그 가격
+        # wk: 1차 목표 50% 트레일링 스탑 뒤 남은 물량은 주봉 종가가 N주선 아래로 마감하면 다음 날 시가에 매도
+        self.tgt, self.wk = tgt, wk
+        self.wk_break = lambda t, k, n: False
         # fund: 종목 매수 자금을 'cash' 현금 먼저(모자라면 TQQQ 매도), 'tqqq' TQQQ 먼저(종목 몫만큼 TQQQ 목표 비중을 줄임)
         self.fund = fund
         # only_ta: 적자 턴어라운드 경로 종목만 산다
@@ -228,6 +238,26 @@ class Book:
         self.slots, self.cost, self.first, self.add = slots, cost, first, add
         self.cash, self.pos, self.orders, self.closed, self.curve, self.invested = 1.0, {}, [], [], [], []
         self.pending, self.last_eq = {}, 1.0
+
+    def _tgt(self, s):
+        """매수 후보의 손절·목표(카드 값 또는 바꾼 규칙). None이면 매수하지 않는다."""
+        m = s['metrics']
+        if not self.tgt or m.get('expected_loss') is None:
+            return m
+        r, t1 = abs(m['expected_loss']), m['target_1']
+        per, med = s.get('per'), s.get('per_med5')
+        val = (med / per - 1) * 100 if cr.positive(per) and cr.positive(med) and med > per else 0
+        if s.get('fin') and cr.positive(s.get('pbr')) and s['pbr'] < 1:
+            val = max(val, (1 / s['pbr'] - 1) * 100)
+        if self.tgt == 'no7':
+            t2 = max(val, r * 3)
+        else:   # val3: 일반 기업만
+            if s.get('fin') or cr.loss_turnaround(s):
+                return m
+            if val < r * 3:
+                return None
+            t2 = val
+        return None if t2 <= t1 else {**m, 'target_2': round(t2, 1)}
 
     def _sell(self, t, q, px, k, why):
         p = self.pos[t]
@@ -413,8 +443,14 @@ class Book:
                 return True
             return sell_card
         sells = [t for t, p in self.pos.items() if want_sell(t, p)]
+        if self.wk:   # 1차 목표에 닿은 종목: 주봉 종가가 N주선 아래로 마감하면 남은 물량 매도
+            wk_out = [t for t, p in self.pos.items() if t not in sells and p['t1_done'] and self.wk_break(t, k, self.wk)]
+        else:
+            wk_out = []
         orders = [{'side': 'sell', 't': t, 'why': ('매도카드(' + ','.join(cards[t].get('state_reasons') or []) + ')')
                    if cards.get(t, {}).get('state') == 'SELL' else '이평선 이탈'} for t in sells]
+        orders += [{'side': 'sell', 't': t, 'why': f'{self.wk}주선 이탈'} for t in wk_out]
+        sells = sells + wk_out
         for t, p in self.pos.items():
             if (t not in sells and not p['added'] and not p['t1_done']
                     and cards.get(t, {}).get('state') == 'BUY' and signal(t)):
@@ -448,8 +484,9 @@ class Book:
         if self.sector_rank:
             cnt = Counter(self.sector.get(t, '미분류') for t, c in cards.items() if c.get('state') == 'BUY')
             new.sort(key=lambda s: -cnt[self.sector.get(s['code'], '미분류')])   # 안정 정렬: 같은 수면 기존 순서
+        new = [s for s in new if self._tgt(s) is not None]
         for s in new[:max(free, 0)]:
-            added, m, c = signal(s['code']), s['metrics'], s.get('close')
+            added, m, c = signal(s['code']), self._tgt(s), s.get('close')
             ta = not s.get('fin') and cr.loss_turnaround(s)
             if self.only_ta and not ta:
                 continue
@@ -606,7 +643,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>1차 즉시 익절: 1차 목표가에 닿으면 처음 물량의 50%를 그 가격(갭이면 시가)에 바로 팔고, 2차 목표가에 닿으면 25%에 트레일링 스탑(지금과 같음), 나머지는 매도카드.</li>
+<li>2차 +7%p 삭제: 2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값, 2차가 1차 이하면 매수하지 않음. 5년 중앙 PER 조건: 일반 기업은 5년 중앙 PER까지 상승 여력이 손절률 3배 이상일 때만 매수하고 2차 목표는 그 가격(금융업·턴어라운드는 그대로). 주봉 단계형: 1차 목표가에 처음 물량 50% 트레일링 스탑(지금과 같음), 2차 목표 대신 주봉 종가가 10주선·20주선 아래로 마감하면 다음 날 시가에 남은 물량 매도. 매도카드 매도는 모두 유지.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
@@ -782,11 +819,32 @@ def main():
         import stress_tqqq
         (Os_, Cs_), (Ot, Ct) = idx_px('SPY'), idx_px('TQQQ')
         px_idx['MIXS'] = stress_tqqq.mix(Os_, Cs_, Ot, Ct, q_ok)
+    week = (CAL.astype(np.int64) + 3) // 7   # 월~일 한 주
+    week_end = np.r_[week[1:] != week[:-1], True]
+    wk_cache = {}
+
+    def wk_break(t, k, n):
+        """그 주 마지막 거래일 종가가 N주 이동평균(끝난 주봉 종가 기준) 아래면 True"""
+        if not week_end[k]:
+            return False
+        ci = index[t]
+        if (ci, n) not in wk_cache:
+            c_ = cos[ci]['a']['c'].astype(float)
+            idx_ = np.where(week_end & np.isfinite(c_))[0]
+            wc = c_[idx_]
+            ma_ = np.full(len(wc), np.nan)
+            if len(wc) >= n:
+                ma_[n - 1:] = np.convolve(wc, np.ones(n) / n, 'valid')
+            brk = np.zeros(len(CAL), bool)
+            brk[idx_] = wc < ma_
+            wk_cache[(ci, n)] = brk
+        return bool(wk_cache[(ci, n)][k])
     for b in books.values():
         o_, c_ = px_idx[b.idx]
         b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
         okk = syn_ok.get(b.idx, q_buf if b.idx_buf else q_ok)
         b.idx_ok = lambda k, okk=okk: bool(okk[k])
+        b.wk_break = wk_break
         b.ma_ok = lambda t, k: (lambda A: bool(np.isfinite(A['c'][k]) and (A['c'][k] >= A['ma120'][k] or A['c'][k] >= A['ma200'][k])))(cos[index[t]]['a'])
     zc = z['c'].astype(float)
     ma200 = np.convolve(zc, np.ones(200) / 200, 'valid')
