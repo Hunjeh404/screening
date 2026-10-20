@@ -32,14 +32,13 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _V = {'c50': ('지금 전략 (TQQQ 최대 50%)', True, _P),
-      'be25': ('1차 본전손절+25% 익절 · 2차 50% · 이평선 위면 보유', True, dict(_P, exits='be25')),
-      'be0': ('1차 본전손절만 · 2차 50% · 이평선 위면 보유', True, dict(_P, exits='be0')),
+      'n1': ('1차 50% 즉시 익절 · 2차 25% TS', True, dict(_P, exits='n1t2')),
       'cash': ('종목만(현금) · 지금 매도 방식', True, dict(_O, spy=False)),
-      'cash_be25': ('종목만(현금) · 1차 본전+25%', True, dict(_O, spy=False, exits='be25')),
-      'cash_be0': ('종목만(현금) · 1차 본전만', True, dict(_O, spy=False, exits='be0'))}
+      'cash_n1': ('종목만(현금) · 1차 50% 즉시 익절', True, dict(_O, spy=False, exits='n1t2'))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'ts12': (('t1_done', 't1', .5, '1차', None), ('t2_done', 't2', .25, '2차', 't1_done')),
+         'n1t2': (('t1_done', 't1', .5, '1차', None, 'now'), ('t2_done', 't2', .25, '2차', 't1_done')),
          'ts2': (('t2_done', 't2', .5, '2차', None),), 'none': ()}
 OBV_NAMES = (None, '중립', '매집', '이탈')
 EPOCH = dt.date(1970, 1, 1)
@@ -354,11 +353,16 @@ class Book:
                         tr['peak'] = max(tr['peak'], hi)
                 if not alive:
                     continue
-                for key, lvl, frac, name, need in PLANS[self.exits]:
+                for key, lvl, frac, name, need, *now in PLANS[self.exits]:
                     if not p[key] and (need is None or p[need]) and hi >= p['tp' + lvl[1]]:
                         p[key] = True
                         if self.breakeven and key == 't1_done':
                             p['stop'] = max(p['stop'], p['entry'])
+                        if now:   # 목표가에 닿으면 그 가격(갭이면 시가)에 바로 익절
+                            p['events'].append(name + '목표')
+                            if not self._sell(t, p['base'] * frac, max(op, p['tp' + lvl[1]]), k, name + '익절'):
+                                break
+                            continue
                         p['trails'].append({'q': p['base'] * frac, 'peak': hi, 'k': k, 'name': name})
                         p['events'].append(name + '목표')
             elif not p['bull']:
@@ -602,7 +606,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>본전손절 방식: 1차 목표가에 닿으면 손절선을 매입가로 올리고(1번은 처음 물량의 25%를 목표가에 바로 익절), 2차 목표가에 닿으면 남은 물량의 50%를 목표가에 바로 익절. 1차 목표에 닿은 종목은 매도카드가 떠도 종가가 120일선 또는 200일선 이상이면 계속 보유하고, 둘 다 아래로 내려간 다음 날 시가에 전량 매도. 트레일링 스탑 없음.</li>
+<li>1차 즉시 익절: 1차 목표가에 닿으면 처음 물량의 50%를 그 가격(갭이면 시가)에 바로 팔고, 2차 목표가에 닿으면 25%에 트레일링 스탑(지금과 같음), 나머지는 매도카드.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>

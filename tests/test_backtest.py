@@ -363,6 +363,14 @@ class BookTest(unittest.TestCase):
         self.assertEqual(b.closed[0]['exit'], '손절')
         self.assertAlmostEqual(b.cash, 1)
 
+    def test_first_target_immediate(self):
+        b = bt.Book(5, cost=0, add=0, exits='n1t2')
+        self.run_days(b, [({}, {'A': card('A')}, ['A']), ({'A': (100, 111, 100, 110)}, {'A': card('A')}, [])])
+        p = b.pos['A']
+        self.assertAlmostEqual(p['sh'], .001)
+        self.assertEqual(p['events'], ['매수', '1차목표', '1차익절'])
+        self.assertAlmostEqual(b.cash, .8 + .001 * 110)
+
 
 if __name__ == '__main__':
     unittest.main()
