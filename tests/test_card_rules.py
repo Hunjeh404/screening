@@ -276,5 +276,13 @@ class HistoryTest(unittest.TestCase):
             self.assertFalse(buy_eligible(s)); self.assertTrue(buy_eligible({**s,'tt':True}))
         finally:
             card_rules.USE_TT=False
+    def test_valuation_switch(self):
+        import card_rules
+        s=stock(per=30,per_med5=20); self.assertFalse(buy_eligible(s))
+        card_rules.USE_VAL=False
+        try:
+            self.assertTrue(buy_eligible(s))
+        finally:
+            card_rules.USE_VAL=True
 
 if __name__=='__main__':unittest.main()

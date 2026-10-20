@@ -10,6 +10,7 @@ SCHEMA_VERSION = 2
 FSCORE_NEED = {9: 7, 6: 5}
 # 이동평균 조건(매수: 종가 ≥ 120·200일선 중 하나, 매도: 추세이탈) 사용 여부. 백테스트 비교용
 USE_MA = True
+USE_VAL = True  # 저평가 조건(일반: PER < 5년 중앙 PER, 금융: PBR ≤ 1) (백테스트 비교용 스위치)
 USE_TT = False  # 미너비니 추세 템플릿(s['tt'])까지 요구 (백테스트 비교용 스위치)
 USE_VO = True   # 변동성 축소·주봉 OBV 이탈 매수 조건 (백테스트 비교용 스위치)
 # 공시지연(시장 최빈 분기보다 2분기 이상 늦음) 사용 여부. 앱은 쓰지 않음, 백테스트 비교용
@@ -121,13 +122,13 @@ def buy_eligible(s):
     if not ((not USE_MA or c >= a or c >= b) and (not USE_VO or s.get('vol_down'))) or (USE_VO and s.get('obv_signal') == '이탈'):
         return False
     if s.get('fin'):
-        return (positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10
+        return ((not USE_VAL or (positive(s.get('pbr')) and s['pbr'] <= 1)) and valid(s.get('roe3')) and s['roe3'] >= 10
                 and positive(s.get('op_ttm_value')) and profit_holding(s))
     if loss_turnaround(s):
         return op_improving(s) and fscore_ok(s)
     return profit_holding(s) and (valid(s.get('roe3')) and s['roe3'] >= 15 and valid(s.get('debt')) and s['debt'] <= 50
-            and s.get('profit_years', 0) >= 5 and positive(s.get('per')) and positive(s.get('per_med5'))
-            and s['per'] < s['per_med5'])
+            and s.get('profit_years', 0) >= 5 and positive(s.get('per'))
+            and (not USE_VAL or (positive(s.get('per_med5')) and s['per'] < s['per_med5'])))
 
 
 def peak_out(s):

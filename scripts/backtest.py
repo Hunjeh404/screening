@@ -33,7 +33,7 @@ _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
 _V = {'c50t': ('지금 전략 (세후)', True, _X),
-      'tt': ('지금 종목 조건 + 미너비니 추세 템플릿 (세후)', 'tt', _X)}
+      'ttnv': ('저평가 조건 빼고 + 미너비니 추세 템플릿 (세후)', 'ttnv', _X)}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -704,7 +704,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 미너비니 추세 템플릿: 지금 매수 조건에 더해 종가 &gt; 50·150·200일선, 50일선 &gt; 150일선 &gt; 200일선, 200일선이 21거래일 전보다 높음, 52주 저점 대비 +30% 이상, 52주 고점 대비 -25% 이내, 1년 수익률 상대강도 상위 30%(백테스트 종목 안에서 순위). 매도·예수금 규칙은 지금과 같음.</li>
+<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 미너비니 추세 템플릿: 지금 매수 조건에 더해 종가 &gt; 50·150·200일선, 50일선 &gt; 150일선 &gt; 200일선, 200일선이 21거래일 전보다 높음, 52주 저점 대비 +30% 이상, 52주 고점 대비 -25% 이내, 1년 수익률 상대강도 상위 30%(백테스트 종목 안에서 순위). 저평가 조건(일반 PER &lt; 5년 중앙 PER, 금융 PBR ≤ 1)은 빼고 나머지 매수 조건(실적 신고가·ROE·부채·흑자 연수·변동성·OBV 등)은 유지. 매도·예수금 규칙은 지금과 같음.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
@@ -963,7 +963,7 @@ def main():
         for s in base:
             s['stale'] = s['latest_q'] < fresh
         for ma, history in histories.items():   # 판정 조건(이평선·변동성/OBV)이 다르면 카드 상태가 달라지므로 따로 추적
-            cr.USE_MA, cr.USE_VO, cr.USE_TT = ma is not False, ma != 'novo', ma == 'tt'
+            cr.USE_MA, cr.USE_VO, cr.USE_TT, cr.USE_VAL = ma is not False, ma != 'novo', ma in ('tt', 'ttnv'), ma != 'ttnv'
             stocks = [dict(s) for s in base]
             cr.update_history(stocks, history, 'us', f'{day} 08:00')
             cards, newly = {}, []
@@ -993,7 +993,7 @@ def main():
                 sel_prev = now
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
-    cr.USE_MA, cr.USE_VO, cr.USE_TT = True, True, False
+    cr.USE_MA, cr.USE_VO, cr.USE_TT, cr.USE_VAL = True, True, False, True
     selection_report(sel_events, cos)
     for line in report({STRATEGIES[key][0]: b for key, b in books.items()}, spy, CAL):
         print('::warning title=backtest::' + line)
