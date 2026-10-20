@@ -55,7 +55,7 @@ if not os.path.exists(f'{OUT}/facts/.done'):
 print('재무', len(os.listdir(f'{OUT}/facts')) - 1, flush=True)
 
 # 2) 일봉: 분할 반영 가격(배당 미반영), 분할 비율 포함
-tickers = sorted({v['ticker'] for v in listing.values()} | {'SPY', 'QQQ', 'TQQQ'})
+tickers = sorted({v['ticker'] for v in listing.values()} | {'SPY', 'QQQ', 'TQQQ', 'SCHD'})
 todo = [t for t in tickers if not os.path.exists(f'{OUT}/px/{t}.npz')]
 EPOCH = np.datetime64('1970-01-01')
 for i in range(0, len(todo), 100):
@@ -82,6 +82,20 @@ for i in range(0, len(todo), 100):
     print('시세', i + len(chunk), '/', len(todo), flush=True)
     time.sleep(2)
 print('시세 파일', len(os.listdir(f'{OUT}/px')))
+# 지수 ETF는 배당(dv)까지 저장해 백테스트에서 배당 재투자 수익률로 쓴다
+for t in ('SPY', 'QQQ', 'TQQQ', 'SCHD'):
+    if 'dv' in np.load(f'{OUT}/px/{t}.npz').files:
+        continue
+    x = yf.download(t, start=START, auto_adjust=False, actions=True, progress=False)
+    if hasattr(x.columns, 'levels'):
+        x.columns = x.columns.get_level_values(0)
+    x = x.dropna(subset=['Close'])
+    days = ((x.index.values.astype('datetime64[D]') - EPOCH).astype(np.int32))
+    col = lambda k: x[k].fillna(0).to_numpy(np.float64) if k in x else np.zeros(len(x))
+    np.savez_compressed(f'{OUT}/px/{t}.npz', d=days, o=x['Open'].to_numpy(np.float64), h=x['High'].to_numpy(np.float64),
+                        l=x['Low'].to_numpy(np.float64), c=x['Close'].to_numpy(np.float64), v=col('Volume'),
+                        s=col('Stock Splits'), dv=col('Dividends'))
+    print('배당 포함 시세', t, int((col('Dividends') > 0).sum()), '회', flush=True)
 
 # 3) 실적발표일: SEC 일괄 제출목록(submissions.zip)에서 8-K 중 Item 2.02(실적 공시) 제출일만 남긴다
 EP = f'{OUT}/earn.json'

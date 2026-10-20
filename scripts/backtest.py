@@ -32,8 +32,10 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
-_V = {'c50t': ('지금 전략 (세후)', True, _X),
-      'ttnv': ('저평가 조건 빼고 + 미너비니 추세 템플릿 (세후)', 'ttnv', _X)}
+_V = {'c50t': ('지금 전략 TQQQ·QQQ 200일선 (세후)', True, _X)}
+for e_ in ('SPY', 'QQQ', 'SCHD'):
+    _V[e_ + '_ma'] = (f'{e_}·자기 200일선 매매 (세후)', True, dict(_X, idx=e_, own_ma=True))
+    _V[e_ + '_hold'] = (f'{e_}·존버 (세후)', True, dict(_X, idx=e_, idx_ma=False))
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -201,7 +203,8 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=()):
+                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=(), own_ma=False):
+        self.own_ma = own_ma   # 200일선 매매를 QQQ 대신 보유 ETF 자기 200일선으로
         # max_age: 실적 공시 후 이 거래일 수가 지난 종목은 신규 매수 안 함. ex_sec: 이 섹터(야후 영문)는 신규 매수 안 함
         self.max_age, self.ex_sec = max_age, set(ex_sec)
         self.avg_stop = avg_stop   # ▲ 추가매수 직후 손절선을 평단(수수료 포함 평균 매입가)으로 올림
@@ -704,7 +707,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 미너비니 추세 템플릿: 지금 매수 조건에 더해 종가 &gt; 50·150·200일선, 50일선 &gt; 150일선 &gt; 200일선, 200일선이 21거래일 전보다 높음, 52주 저점 대비 +30% 이상, 52주 고점 대비 -25% 이내, 1년 수익률 상대강도 상위 30%(백테스트 종목 안에서 순위). 저평가 조건(일반 PER &lt; 5년 중앙 PER, 금융 PBR ≤ 1)은 빼고 나머지 매수 조건(실적 신고가·ROE·부채·흑자 연수·변동성·OBV 등)은 유지. 매도·예수금 규칙은 지금과 같음.</li>
+<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 예수금 ETF 비교(세후): 종목 매매는 지금 규칙 그대로, 예수금은 TQQQ 대신 SPY·QQQ·SCHD를 총자산의 50%까지(현금 먼저 사용). '200일선 매매'는 그 ETF 자기 종가가 200일선 아래로 마감하면 다음 날 시가 전량 매도, 위로 마감하면 다음 날 시가 매수. '존버'는 200일선 무시하고 계속 보유. 지수 ETF는 배당 재투자(원천징수 15% 차감) 반영.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
@@ -857,7 +860,11 @@ def main():
     def idx_px(name):   # 거래일 달력에 맞춘 (시가, 종가), 빈 날은 직전 값
         x = np.load(f'{BT}/px/{name}.npz')
         pos = np.clip(np.searchsorted(x['d'], CAL, 'right') - 1, 0, None)
-        o, c = x['o'].astype(float)[pos], x['c'].astype(float)[pos]
+        o, c = x['o'].astype(float), x['c'].astype(float)
+        if 'dv' in x.files:   # 배당 재투자(미국 원천징수 15% 뺀 85%), 배당락일 시가부터 반영
+            F = np.cumprod(1 + .85 * x['dv'].astype(float) / c)
+            o, c = o * F, c * F
+        o, c = o[pos], c[pos]
         return np.where(np.isfinite(o) & (x['d'][pos] == CAL), o, c), c
     names = {kw.get('idx', 'SPY') for _, _, kw in STRATEGIES.values()} | {'QQQ'}
     SYN = {'NDX3', 'NDX1', 'SPX1', 'NDX3F', 'MIXF'}
@@ -880,6 +887,12 @@ def main():
         st_ = c_ >= m_ * 1.015 if not st_ else c_ >= m_ * .985
         qbuf[d_] = st_
     q_buf = np.array([qbuf.get(int(d), True) for d in CAL])
+
+    def own_ok(name):   # 그 ETF 자체 종가가 자기 200일선 이상인 날
+        x = np.load(f'{BT}/px/{name}.npz')
+        m = np.convolve(x['c'].astype(float), np.ones(200) / 200, 'valid')
+        ok_ = dict(zip(x['d'][199:].tolist(), (x['c'][199:] >= m).tolist()))
+        return np.array([ok_.get(int(d), True) for d in CAL])
     if 'MIX' in names:   # 실제 QQQ 반 + TQQQ 반(QQQ 200일선 아래면 그 반은 현금)
         import stress_tqqq
         (Oq, Cq), (Ot, Ct) = idx_px('QQQ'), idx_px('TQQQ')
@@ -937,7 +950,7 @@ def main():
         b.earn_block = earn_block
         o_, c_ = px_idx[b.idx]
         b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
-        okk = syn_ok.get(b.idx, q_buf if b.idx_buf else q_ok)
+        okk = own_ok(b.idx) if b.own_ma else syn_ok.get(b.idx, q_buf if b.idx_buf else q_ok)
         b.idx_ok = lambda k, okk=okk: bool(okk[k])
         b.wk_break = wk_break
         b.ma_ok = lambda t, k: (lambda A: bool(np.isfinite(A['c'][k]) and (A['c'][k] >= A['ma120'][k] or A['c'][k] >= A['ma200'][k])))(cos[index[t]]['a'])
