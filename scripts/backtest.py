@@ -31,9 +31,12 @@ _O = dict(_T, idx_open=True)
 _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
-_V = {'c50': ('지금 전략 (TQQQ 최대 50%)', True, _P),
-      'n1': ('1차 50% 즉시 익절 · 나머지 매도카드까지 보유', True, dict(_P, exits='n1')),
-      'n1lock': ('1차 50% 즉시 익절 · 2차 도달 시 손절선을 1차 목표가로 · 매도카드까지', True, dict(_P, exits='n1', lock=True))}
+_X = dict(_P, tax=.22)   # 세후
+_V = {'c50': ('지금 전략 (세전)', True, _P),
+      'c50t': ('지금 전략 (세후)', True, _X),
+      'novo': ('세후 · 변동성·OBV 필터 뺌', 'novo', _X),
+      'nogen': ('세후 · 일반 기업 뺌(금융·턴어라운드만)', True, dict(_X, no_gen=True)),
+      'earn': ('세후 · 실적발표 전5~후2거래일 신규 매수 안 함', True, dict(_X, earn=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -193,7 +196,12 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False):
+                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False):
+        # tax: 해외주식 양도세율. 매년 실현손익(종목+지수)을 합산해 이익이면 다음 해 첫 거래일 시가에 현금(모자라면 지수 매도)에서 낸다
+        self.tax, self.gain_y, self.spy_cost, self.tax_paid = tax, 0.0, 0.0, 0.0
+        # no_gen: 일반 기업 경로는 사지 않음(금융·턴어라운드만). earn: 실적발표 전 5거래일~후 2거래일엔 신규 매수 안 함
+        self.no_gen, self.earn = no_gen, earn
+        self.earn_block = lambda t, k: False
         self.lock = lock   # 1차 익절 뒤 2차 목표에 닿으면 손절선을 1차 목표가로 올림
         # tgt: 'no7' 2차 = max(가치 회복 여력, 손절률 3배)이고 2차가 1차 이하면 매수 안 함
         #      'val3' 일반 기업은 5년 중앙 PER까지 여력이 손절률 3배 이상일 때만 매수, 2차 = 그 가격
@@ -261,6 +269,7 @@ class Book:
         q = min(q, p['sh'])
         got = q * px * (1 - self.cost)
         self.cash += got
+        self.gain_y += got - q * p['spent'] / p['base']
         p['sh'] -= q
         p['proceeds'] += got
         p['events'].append(why)
@@ -270,6 +279,32 @@ class Book:
             del self.pos[t]
             return False
         return True
+
+    def _idx_buy(self, amt, px):
+        self.spy_sh += amt / (px * (1 + self.cost))
+        self.spy_cost += amt
+
+    def _idx_sell(self, q, px):
+        q = min(q, self.spy_sh)
+        if q <= 0:
+            return
+        basis = self.spy_cost * q / self.spy_sh
+        got = q * px * (1 - self.cost)
+        self.spy_sh -= q
+        self.spy_cost -= basis
+        self.cash += got
+        self.gain_y += got - basis
+
+    def _pay_tax(self, k):
+        """해가 바뀐 첫 거래일 시가: 지난해 실현이익의 tax만큼 납부"""
+        if not self.tax or k == 0 or day_str(CAL[k])[:4] == day_str(CAL[k - 1])[:4]:
+            return
+        due, self.gain_y = max(self.gain_y, 0.0) * self.tax, 0.0
+        if due > self.cash and self.spy_sh:
+            op = self.spy_bar(k)[0]
+            self._idx_sell((due - self.cash) / (op * (1 - self.cost)), op)
+        self.cash -= due
+        self.tax_paid += due
 
     def _buy(self, o, px, k):
         t = o['t']
@@ -306,6 +341,7 @@ class Book:
     def morning(self, k, bar):
         """시가: 전날 신호 주문 체결(매도 먼저). 장중: 손절(항상), 목표가 처리(초강세 구간이면 쉰다)"""
         orders, self.orders = self.orders, []
+        self._pay_tax(k)
         for o in orders:
             if o['side'] == 'sell' and o['t'] in self.pos and bar(o['t']):
                 t, op, p = o['t'], bar(o['t'])[0], self.pos[o['t']]
@@ -322,21 +358,18 @@ class Book:
         need = sum(o['value'] for o in orders if o['side'] == 'buy' and bar(o['t']))
         if self.spy and self.spy_sh and (need > self.cash or (self.fund == 'tqqq' and need > 0)):
             op = self.spy_bar(k)[0]
-            q = min(self.spy_sh, (need if self.fund == 'tqqq' else need - self.cash) / (op * (1 - self.cost)))
-            self.spy_sh -= q
-            self.cash += q * op * (1 - self.cost)
+            self._idx_sell((need if self.fund == 'tqqq' else need - self.cash) / (op * (1 - self.cost)), op)
         for o in orders:
             if o['side'] == 'buy' and bar(o['t']):
                 self._buy(o, bar(o['t'])[0], k)
         if self.spy and self.idx_open and k > 0:   # 전날 종가 기준 판정으로 시가에 지수 매매
             op = self.spy_bar(k)[0]
             if self.idx_ma and not self.idx_ok(k - 1):
-                self.cash += self.spy_sh * op * (1 - self.cost)
-                self.spy_sh = 0.0
+                self._idx_sell(self.spy_sh, op)
             elif self.cash > 0:
                 held = sum(p['sh'] * p['last'] for p in self.pos.values()) if self.fund == 'tqqq' else 0.0
                 amt = self.cash if self.idx_cap is None else min(self.cash, max(0.0, self.idx_cap * self.last_eq - held - self.spy_sh * op))
-                self.spy_sh += amt / (op * (1 + self.cost))
+                self._idx_buy(amt, op)
                 self.cash -= amt
         for t in list(self.pending):   # 지정가: 장중 저가가 지정가에 닿으면 그 가격(갭 하락이면 시가)
             o, b = self.pending[t], bar(t)
@@ -420,11 +453,9 @@ class Book:
         value = sum(p['sh'] * p['last'] for p in self.pos.values()) + sum(c['sh'] * c['last'] for c in self.core)
         ok = (not self.idx_ma or self.idx_ok(k)) and not self.idx_open
         if self.spy and self.spy_sh and not ok and not self.idx_open:   # 200일선 아래: 종가에 지수 전량 매도
-            self.cash += self.spy_sh * self.spy_bar(k)[1] * (1 - self.cost)
-            self.spy_sh = 0.0
+            self._idx_sell(self.spy_sh, self.spy_bar(k)[1])
         if self.spy and self.cash > 0 and ok:   # 남는 현금은 종가에 지수 매수
-            c = self.spy_bar(k)[1]
-            self.spy_sh += self.cash / (c * (1 + self.cost))
+            self._idx_buy(self.cash, self.spy_bar(k)[1])
             self.cash = 0.0
         eq = self.cash + value + (self.spy_sh * self.spy_bar(k)[1] if self.spy else 0)
         self.last_eq = eq
@@ -493,7 +524,9 @@ class Book:
         if self.sector_rank:
             cnt = Counter(self.sector.get(t, '미분류') for t, c in cards.items() if c.get('state') == 'BUY')
             new.sort(key=lambda s: -cnt[self.sector.get(s['code'], '미분류')])   # 안정 정렬: 같은 수면 기존 순서
-        new = [s for s in new if self._tgt(s) is not None]
+        new = [s for s in new if self._tgt(s) is not None
+               and not (self.no_gen and not s.get('fin') and not cr.loss_turnaround(s))
+               and not (self.earn and self.earn_block(s['code'], k + 1))]
         for s in new[:max(free, 0)]:
             added, m, c = signal(s['code']), self._tgt(s), s.get('close')
             ta = not s.get('fin') and cr.loss_turnaround(s)
@@ -597,8 +630,14 @@ def report(books, spy, days):
         extra = ({'거래': len(tr), '승률': f"{(tr['ret'] > 0).mean() * 100:.0f}%", '평균 손익': pct(tr['ret'].mean()),
                   '평균 보유(거래일)': f"{(tr['exit_k'] - tr['entry_k']).mean():.0f}",
                   '평균 투자 비중': f"{np.mean(b.invested) * 100:.0f}%"} if tr is not None else {})
+        cut = int(np.searchsorted(days, day_int('2020-01-01')))   # 과최적화 점검: 앞뒤 구간 따로
+        a_, b_ = stats(curve[:cut + 1], days[:cut + 1]), stats(curve[cut:], days[cut:])
+        per = {'13~19 CAGR': pct(a_['CAGR']), '13~19 MDD': pct(a_['MDD']), '13~19 샤프': f"{a_['샤프']:.2f}",
+               '20~26 CAGR': pct(b_['CAGR']), '20~26 MDD': pct(b_['MDD']), '20~26 샤프': f"{b_['샤프']:.2f}"}
+        if b and b.tax:
+            extra['낸 세금(시작자산=1)'] = f'{b.tax_paid:.2f}'
         row = {'구분': name, '총수익률': pct(st['총수익률']), 'CAGR': pct(st['CAGR']), 'MDD': pct(st['MDD']),
-               '샤프': f"{st['샤프']:.2f}", **extra}
+               '샤프': f"{st['샤프']:.2f}", **per, **extra}
         rows.append(row)
         lines.append(' · '.join(f'{k} {v}' for k, v in row.items()))
         if tr is not None:
@@ -652,7 +691,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 비교안: 1차 목표가에 닿으면 처음 물량 50%를 그 가격(갭이면 시가)에 바로 익절하고 2차 익절 없이 나머지는 매도카드까지 보유. 그중 하나는 2차 목표에 닿으면 손절선을 1차 목표가로 올림(2차에서 팔지는 않음).</li>
+<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(250만 원 공제 무시)를 매년 실현손익(종목+TQQQ) 합계가 이익일 때 다음 해 첫 거래일에 납부(현금 부족 시 TQQQ 매도), 마지막 해 손익과 미실현 이익의 세금은 빠져 있음. 실적발표일은 SEC 8-K(Item 2.02) 제출일, 다음 발표일은 직전 + 91일로 추정. 13~19·20~26 열은 같은 규칙을 두 구간으로 나눠 본 성과(과최적화 점검).</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
@@ -849,7 +888,32 @@ def main():
             wk_cache[(ci, n)] = brk
         v = wk_cache[(ci, n)][k]
         return None if np.isnan(v) else bool(v)
+    earn_days = {}   # 종목별 실적 발표일(8-K Item 2.02 제출일, 거래일 달력 위치)
+    if os.path.exists(f'{BT}/earn.json'):
+        ej, t2c = json.load(open(f'{BT}/earn.json', encoding='utf-8')), {v['ticker']: c for c, v in listing.items()}
+        for co in cos:
+            ds = ej.get(t2c.get(co['t'], ''), [])
+            if ds:
+                earn_days[co['t']] = np.searchsorted(CAL, sorted(day_int(x) for x in ds))
+    print('실적발표일 있는 종목', len(earn_days), flush=True)
+
+    def earn_block(t, k):
+        """k일 시가 매수가 실적발표 전 5거래일~후 2거래일에 걸리면 True.
+        다음 발표일은 직전 발표일 + 91일로 추정하고, 늦어지면 실제 발표 전까지(최대 30일) 막는다."""
+        E = earn_days.get(t)
+        if E is None:
+            return False
+        k = min(k, len(CAL) - 1)
+        j = int(np.searchsorted(E, k, 'right')) - 1
+        if j < 0:
+            return False
+        if k - E[j] <= 2:
+            return True
+        nxt = int(np.searchsorted(CAL, CAL[min(E[j], len(CAL) - 1)] + 91))
+        return k >= nxt - 5 and CAL[k] <= CAL[min(nxt, len(CAL) - 1)] + 30
+
     for b in books.values():
+        b.earn_block = earn_block
         o_, c_ = px_idx[b.idx]
         b.spy_bar = lambda k, o_=o_, c_=c_: (float(o_[k]), float(c_[k]))
         okk = syn_ok.get(b.idx, q_buf if b.idx_buf else q_ok)
@@ -877,8 +941,8 @@ def main():
         base = [s for ci in rec | held if started and cur[ci] and (s := build(cos[ci], cur[ci], k))]
         for s in base:
             s['stale'] = s['latest_q'] < fresh
-        for ma, history in histories.items():   # 이평선 조건 켬/끔은 카드 상태가 달라지므로 따로 추적
-            cr.USE_MA = ma
+        for ma, history in histories.items():   # 판정 조건(이평선·변동성/OBV)이 다르면 카드 상태가 달라지므로 따로 추적
+            cr.USE_MA, cr.USE_VO = ma is not False, ma != 'novo'
             stocks = [dict(s) for s in base]
             cr.update_history(stocks, history, 'us', f'{day} 08:00')
             cards, newly = {}, []
@@ -892,7 +956,7 @@ def main():
                 if STRATEGIES[key][1] == ma:
                     b.mkt_ok = bool(spy_ok[k])
                     b.evening(k, bar, cards, newly)
-            if ma:   # 종목선정 진단: 조건별로 '새로 충족'된 날을 모은다 (같은 종목은 20거래일 안에 다시 세지 않음)
+            if ma is True:   # 종목선정 진단: 조건별로 '새로 충족'된 날을 모은다 (같은 종목은 20거래일 안에 다시 세지 않음)
                 now = set()
                 for st in stocks:
                     ci = index.get(st['code'])
@@ -908,7 +972,7 @@ def main():
                 sel_prev = now
         if k % 250 == 0:
             print(day, '보유', [len(b.pos) for b in books.values()], flush=True)
-    cr.USE_MA = True
+    cr.USE_MA, cr.USE_VO = True, True
     selection_report(sel_events, cos)
     for line in report({STRATEGIES[key][0]: b for key, b in books.items()}, spy, CAL):
         print('::warning title=backtest::' + line)

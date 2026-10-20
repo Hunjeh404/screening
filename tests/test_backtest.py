@@ -406,6 +406,25 @@ class BookTest(unittest.TestCase):
         self.assertAlmostEqual(b.pos['A']['sh'], b.pos['A']['base'] * .5)
         self.run_days(b, [({'A': (109, 109, 105, 106)}, C, [])])
         self.assertNotIn('A', b.pos)
+    def test_tax_gen_earn(self):
+        old = bt.CAL
+        bt.CAL = np.array([bt.day_int(d) for d in ('2020-12-28', '2020-12-29', '2020-12-30', '2021-01-04')])
+        try:
+            b = bt.Book(5, cost=0, add=0, tax=.22)
+            self.run_days(b, [({}, {'A': card('A')}, ['A']), ({'A': (100, 100, 100, 100)}, {'A': card('A', state='SELL')}, []),
+                              ({'A': (120, 120, 120, 120)}, {}, []), ({}, {}, [])])
+            self.assertAlmostEqual(b.tax_paid, .2 * .2 * .22)                  # 20% 비중으로 +20% 실현
+            self.assertAlmostEqual(b.cash, 1 + .04 - .0088)
+        finally:
+            bt.CAL = old
+        b = bt.Book(5, cost=0, add=0, no_gen=True)
+        self.run_days(b, [({}, {'A': card('A'), 'B': {**card('B'), 'fin': True}}, ['A', 'B']),
+                          ({'A': (100,) * 4, 'B': (100,) * 4}, {}, [])])
+        self.assertEqual(set(b.pos), {'B'})
+        b = bt.Book(5, cost=0, add=0, earn=True)
+        b.earn_block = lambda t, k: t == 'A'
+        self.run_days(b, [({}, {'A': card('A'), 'B': card('B')}, ['A', 'B']), ({'A': (100,) * 4, 'B': (100,) * 4}, {}, [])])
+        self.assertEqual(set(b.pos), {'B'})
 
 if __name__ == '__main__':
     unittest.main()

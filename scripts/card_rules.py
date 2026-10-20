@@ -10,6 +10,7 @@ SCHEMA_VERSION = 2
 FSCORE_NEED = {9: 7, 6: 5}
 # 이동평균 조건(매수: 종가 ≥ 120·200일선 중 하나, 매도: 추세이탈) 사용 여부. 백테스트 비교용
 USE_MA = True
+USE_VO = True   # 변동성 축소·주봉 OBV 이탈 매수 조건 (백테스트 비교용 스위치)
 # 공시지연(시장 최빈 분기보다 2분기 이상 늦음) 사용 여부. 앱은 쓰지 않음, 백테스트 비교용
 USE_STALE = False
 # 매도 상태로 보여 주는 갱신일 수. 이를 넘기면 이력까지 지운다
@@ -114,7 +115,7 @@ def buy_eligible(s):
     c, a, b = (s.get(k) for k in ('close', 'ma120', 'ma200'))
     if not all(positive(x) for x in (c, a, b)) or not s.get('record') or (USE_STALE and s.get('stale')):
         return False
-    if not ((not USE_MA or c >= a or c >= b) and s.get('vol_down')) or s.get('obv_signal') == '이탈':
+    if not ((not USE_MA or c >= a or c >= b) and (not USE_VO or s.get('vol_down'))) or (USE_VO and s.get('obv_signal') == '이탈'):
         return False
     if s.get('fin'):
         return (positive(s.get('pbr')) and s['pbr'] <= 1 and valid(s.get('roe3')) and s['roe3'] >= 10

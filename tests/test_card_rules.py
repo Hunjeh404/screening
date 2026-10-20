@@ -260,5 +260,13 @@ class HistoryTest(unittest.TestCase):
         h={};update_history([stock(op_ttm_value=-5,ni_ttm=-5,per=None,prev2_op=-20,prev_op=-10,latest_op=-1,fscore=7,fscore_max=9)],h,'us','2026-10-16 08:00')
         rows=[stock(rev_q=False,record=False)];update_history(rows,h,'us','2026-10-17 08:00')
         self.assertEqual(rows[0]['state'],'SELL');self.assertIn('적자전환',rows[0]['state_reasons'])
+    def test_vol_obv_switch(self):
+        import card_rules
+        s=stock(vol_down=False); self.assertFalse(buy_eligible(s))
+        card_rules.USE_VO=False
+        try:
+            self.assertTrue(buy_eligible(s))
+        finally:
+            card_rules.USE_VO=True
 
 if __name__=='__main__':unittest.main()

@@ -82,3 +82,30 @@ for i in range(0, len(todo), 100):
     print('시세', i + len(chunk), '/', len(todo), flush=True)
     time.sleep(2)
 print('시세 파일', len(os.listdir(f'{OUT}/px')))
+
+# 3) 실적발표일: SEC 일괄 제출목록(submissions.zip)에서 8-K 중 Item 2.02(실적 공시) 제출일만 남긴다
+EP = f'{OUT}/earn.json'
+if not os.path.exists(EP):
+    zp = 'data/tmp/submissions.zip'
+    os.makedirs('data/tmp', exist_ok=True)
+    with requests.get('https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip',
+                      headers=UA, stream=True, timeout=900) as r:
+        r.raise_for_status()
+        with open(zp, 'wb') as f:
+            for chunk in r.iter_content(1 << 20):
+                f.write(chunk)
+    want = {f'CIK{int(c):010d}': c for c in listing}
+    earn = {}
+    with zipfile.ZipFile(zp) as z:
+        for n in z.namelist():   # CIK##########.json(최근분), CIK##########-submissions-001.json(과거분)
+            c = want.get(n[:13])
+            if not c:
+                continue
+            j = json.loads(z.read(n))
+            rec = j.get('filings', {}).get('recent', j)
+            for form, day, items in zip(rec.get('form', []), rec.get('filingDate', []), rec.get('items', [])):
+                if form == '8-K' and '2.02' in (items or '') and day >= '2010-01-01':
+                    earn.setdefault(c, set()).add(day)
+    os.remove(zp)
+    json.dump({c: sorted(v) for c, v in earn.items()}, open(EP, 'w', encoding='utf-8'))
+print('실적발표일', len(json.load(open(EP, encoding='utf-8'))), '종목', flush=True)
