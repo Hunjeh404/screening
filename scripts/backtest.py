@@ -32,10 +32,13 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
-_V = {'c50t': ('지금 전략 20%+▲10%·5종목 (세후)', True, _X)}
-for n_, (f_, a_, sl_) in {'10+10': (.1, .1, 10), '15+5': (.15, .05, 6), '15+10': (.15, .1, 6)}.items():
-    _V[n_] = (f'{n_}·{sl_}종목 (세후)', True, dict(_X, first=f_, add=a_, slots=sl_))
-    _V[n_ + 'a'] = (f'{n_}·{sl_}종목 · ▲추가 뒤 손절선=평단 (세후)', True, dict(_X, first=f_, add=a_, slots=sl_, avg_stop=True))
+_S4 = ('Consumer Cyclical', 'Industrials', 'Consumer Defensive', 'Real Estate')
+_V = {'c50t': ('지금 전략 (세후)', True, _X),
+      'sec': ('경기소비재·산업재·필수소비재·부동산 제외', True, dict(_X, ex_sec=_S4)),
+      'a60': ('공시 후 60거래일 넘으면 제외', True, dict(_X, max_age=60)),
+      'a5': ('공시 후 5거래일 넘으면 제외', True, dict(_X, max_age=5)),
+      'sec_a60': ('4개 섹터 제외 + 60거래일', True, dict(_X, ex_sec=_S4, max_age=60)),
+      'sec_a5': ('4개 섹터 제외 + 5거래일', True, dict(_X, ex_sec=_S4, max_age=5))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -195,7 +198,9 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False):
+                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=()):
+        # max_age: 실적 공시 후 이 거래일 수가 지난 종목은 신규 매수 안 함. ex_sec: 이 섹터(야후 영문)는 신규 매수 안 함
+        self.max_age, self.ex_sec = max_age, set(ex_sec)
         self.avg_stop = avg_stop   # ▲ 추가매수 직후 손절선을 평단(수수료 포함 평균 매입가)으로 올림
         # tax: 해외주식 양도세율. 매년 실현손익(종목+지수)을 합산해 이익이면 다음 해 첫 거래일 시가에 현금(모자라면 지수 매도)에서 낸다
         self.tax, self.gain_y, self.spy_cost, self.tax_paid = tax, 0.0, 0.0, 0.0
@@ -528,7 +533,9 @@ class Book:
             new.sort(key=lambda s: -cnt[self.sector.get(s['code'], '미분류')])   # 안정 정렬: 같은 수면 기존 순서
         new = [s for s in new if self._tgt(s) is not None
                and not (self.no_gen and not s.get('fin') and not cr.loss_turnaround(s))
-               and not (self.earn and self.earn_block(s['code'], k + 1))]
+               and not (self.earn and self.earn_block(s['code'], k + 1))
+               and not (self.max_age is not None and k - s.get('filed_k', k) > self.max_age)
+               and self.sector.get(s['code']) not in self.ex_sec]
         for s in new[:max(free, 0)]:
             added, m, c = signal(s['code']), self._tgt(s), s.get('close')
             ta = not s.get('fin') and cr.loss_turnaround(s)
@@ -693,7 +700,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 매수 비중 비교: 첫 매수 % + ▲ 추가 %, 최대 종목 수는 비중에 맞춰(10%→10개, 15%→6개). '손절선=평단'은 따로 들어간 ▲ 추가매수 직후 손절선을 평균 매입가로 올림(처음부터 ▲이 떠서 한 번에 산 경우는 그대로). 13~19·20~26 열은 같은 규칙을 두 구간으로 나눈 성과.</li>
+<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 종목 거르기 비교(모두 세후): 4개 섹터(야후 기준 Consumer Cyclical·Industrials·Consumer Defensive·Real Estate)는 신규 매수 안 함, 공시 후 경과일은 매수 신호일과 그 종목 최신 공시 반영일 사이 거래일 수. 13~19·20~26 열은 같은 규칙을 두 구간으로 나눈 성과.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>

@@ -432,6 +432,12 @@ class BookTest(unittest.TestCase):
         p = b.pos['A']
         self.assertAlmostEqual(p['stop'], p['spent'] / p['base'])          # 평단 = (0.2 + 0.1) / (0.2/100 + 0.1/106)
         self.assertGreater(p['stop'], 100)
+    def test_sector_and_age_filter(self):
+        b = bt.Book(5, cost=0, add=0, max_age=5, ex_sec=('Industrials',))
+        b.sector = {'B': 'Industrials'}
+        C = {'A': {**card('A'), 'filed_k': 0}, 'B': card('B'), 'D': {**card('D'), 'filed_k': -10}}
+        self.run_days(b, [({}, C, ['A', 'B', 'D']), ({t: (100,) * 4 for t in 'ABD'}, {}, [])])
+        self.assertEqual(set(b.pos), {'A'})
 
 if __name__ == '__main__':
     unittest.main()
