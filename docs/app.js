@@ -117,7 +117,7 @@ function priorityGroups(stocks, gen = () => DATA?.meta?.generated) {
 }
 function card(s, generated) {
   const chips=[],h=s.hunbot||{},add=(label,cls='')=>chips.push(badge(label,cls,tagReasons(s,label)));
-  chips.push(badge(s.sector||'미분류','',['야후 기준 섹터 분류']));
+  if(s.sector&&s.sector!=='미분류')chips.push(badge(s.sector,'',['야후 기준 섹터 분류']));
   if(s.trend)add(s.trend==='상승추세'?'상승우위':s.trend);
   if(s.rev_q&&s.rev_ttm)add('매출');
   if(s.op_q&&s.op_ttm)add('영익');
