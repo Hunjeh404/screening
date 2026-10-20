@@ -30,7 +30,7 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(calc_card_metrics(100,98,80,10,10,2,False,1)[0],-7)
         self.assertEqual(calc_card_metrics(100,97,95,10,10,2,False,1)[0],-5)
     def test_turnaround_target(self):
-        self.assertEqual(calc_card_metrics(100,95,130,None,None,None,False,1),(-6.9,30,37))
+        self.assertEqual(calc_card_metrics(100,95,130,None,None,None,False,1),(-6.9,30,20.7))
     def test_turnaround_stop_is_tighter(self):
         self.assertEqual(calc_card_metrics(100,90,80,None,None,2,False,1,turnaround=True)[0],-5)
         self.assertEqual(calc_card_metrics(100,97,95,None,None,2,False,1,turnaround=True)[0],-4.9)
@@ -48,7 +48,7 @@ class MetricsTest(unittest.TestCase):
             for cap in (.1,.3,3,None):
                 a,b,c=calc_card_metrics(close,90,110,10,11,.9,False,cap)
                 self.assertTrue(-10<=a<=-5)
-                self.assertGreaterEqual(c,b+6.99)
+                self.assertGreaterEqual(c,abs(a)*3-.01)
     def test_real_ma200_and_daily_change(self):
         closes=list(range(1,261));dates=[dt.date(2025,1,1)+dt.timedelta(days=i) for i in range(260)]
         p=price_metrics(dates,closes)

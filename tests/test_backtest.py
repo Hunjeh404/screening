@@ -380,12 +380,17 @@ class BookTest(unittest.TestCase):
         self.assertEqual(b._tgt(g(per_med5=10.5))['target_2'], 15.0)    # max(5, 15)
         self.assertIsNone(b._tgt({**g(per_med5=10.5), 'metrics': {'expected_loss': -5, 'target_1': 20, 'target_2': 27}}))
         b = bt.Book(5, cost=0, add=0, exits='wk1', wk=10)
-        brk = {'on': False}
+        brk = {'on': None}
         b.wk_break = lambda t, k, n: brk['on']
         C = {'A': card('A')}
         self.run_days(b, [({}, C, ['A']), ({'A': (100, 111, 100, 110)}, C, []), ({'A': (110, 130, 110, 125)}, C, [])])
         self.assertIn('A', b.pos)                                          # 2차 목표가 넘어도 25% TS 없음
         self.assertNotIn('2차목표', b.pos['A']['events'])
+        brk['on'] = True                                                   # 이평 위로 마감한 적 없으면 안 팜
+        self.run_days(b, [({'A': (125, 126, 124, 125)}, C, []), ({'A': (124, 124, 124, 124)}, C, [])])
+        self.assertIn('A', b.pos)
+        brk['on'] = False
+        self.run_days(b, [({'A': (125, 126, 124, 125)}, C, [])])
         brk['on'] = True
         self.run_days(b, [({'A': (125, 126, 124, 125)}, C, []), ({'A': (124, 124, 124, 124)}, C, [])])
         self.assertEqual(b.closed[0]['exit'], '10주선 이탈')

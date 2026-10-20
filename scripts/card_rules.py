@@ -45,7 +45,7 @@ def calc_card_metrics(close, ma120, ma200, per, med_per_5y, pbr, is_finance, mca
     val = (med_per_5y / per - 1) * 100 if positive(per) and positive(med_per_5y) and med_per_5y > per else 0
     if is_finance and positive(pbr) and pbr < 1:
         val = max(val, (1 / pbr - 1) * 100)
-    target2 = max(val, r * 3, target1 + 7)
+    target2 = max(val, r * 3)   # 2차가 1차 이하이면 매수 대상에서 뺀다(enrich)
     return round(risk, 1), round(target1, 1), round(target2, 1)
 
 
@@ -220,7 +220,7 @@ def enrich(s):
                     'target_1_price': round(c * (1 + t1 / 100), 2) if t1 is not None else None,
                     'target_2_price': round(c * (1 + t2 / 100), 2) if t2 is not None else None}
     s['valuation_insufficient'] = valuation_insufficient(s)
-    s['buy_eligible'] = buy_eligible(s)
+    s['buy_eligible'] = buy_eligible(s) and t2 is not None and t2 > t1
 
 
 def update_history(stocks, history, market, generated, listed=None):
