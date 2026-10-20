@@ -425,6 +425,13 @@ class BookTest(unittest.TestCase):
         b.earn_block = lambda t, k: t == 'A'
         self.run_days(b, [({}, {'A': card('A'), 'B': card('B')}, ['A', 'B']), ({'A': (100,) * 4, 'B': (100,) * 4}, {}, [])])
         self.assertEqual(set(b.pos), {'B'})
+    def test_avg_stop_after_add(self):
+        b = bt.Book(5, cost=0, first=.2, add=.1, avg_stop=True)
+        self.run_days(b, [({}, {'A': card('A')}, ['A']), ({'A': (100,) * 4}, {'A': card('A', age=0)}, []),
+                          ({'A': (106, 107, 105, 106)}, {'A': card('A')}, [])])
+        p = b.pos['A']
+        self.assertAlmostEqual(p['stop'], p['spent'] / p['base'])          # 평단 = (0.2 + 0.1) / (0.2/100 + 0.1/106)
+        self.assertGreater(p['stop'], 100)
 
 if __name__ == '__main__':
     unittest.main()
