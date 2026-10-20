@@ -340,6 +340,29 @@ class BookTest(unittest.TestCase):
             self.assertAlmostEqual(b.pos['A']['spent'], .2)
             self.assertAlmostEqual(b.spy_sh * 100, spy_after, msg=fund)
 
+    def test_breakeven_partial_and_ma_hold(self):
+        C = lambda **kw: {'A': card('A', **kw)}   # 손절 -5%, 1차 +10%, 2차 +20%
+        b = bt.Book(5, cost=0, add=0, exits='be25')
+        ma = {'ok': True}
+        b.ma_ok = lambda t, k: ma['ok']
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 111, 100, 110)}, C(), []),   # 1차: 25% 110에 익절, 손절 100
+                          ({'A': (110, 121, 110, 120)}, C(state='SELL'), [])])        # 2차: 남은 75%의 절반 120에 익절
+        p = b.pos['A']
+        self.assertAlmostEqual(p['stop'], 100)
+        self.assertAlmostEqual(p['sh'], .002 * .75 * .5)
+        self.assertEqual(p['events'], ['매수', '1차목표', '1차익절', '2차익절'])
+        self.run_days(b, [({'A': (120, 121, 119, 120)}, C(state='SELL'), [])])            # 이평선 위: 매도카드여도 보유
+        self.assertIn('A', b.pos)
+        ma['ok'] = False
+        self.run_days(b, [({'A': (118, 119, 117, 118)}, {}, []), ({'A': (117, 117, 117, 117)}, {}, [])])
+        self.assertEqual(b.pos, {})
+        self.assertEqual(b.closed[0]['exit'], '이평선 이탈')
+        b = bt.Book(5, cost=0, add=0, exits='be0')                                   # 1차 익절 없이 본전만
+        b.ma_ok = lambda t, k: True
+        self.run_days(b, [({}, C(), ['A']), ({'A': (100, 111, 100, 110)}, C(), []), ({'A': (101, 102, 99, 100)}, C(), [])])
+        self.assertEqual(b.closed[0]['exit'], '손절')
+        self.assertAlmostEqual(b.cash, 1)
+
 
 if __name__ == '__main__':
     unittest.main()
