@@ -395,6 +395,15 @@ class BookTest(unittest.TestCase):
         self.run_days(b, [({'A': (125, 126, 124, 125)}, C, []), ({'A': (124, 124, 124, 124)}, C, [])])
         self.assertEqual(b.closed[0]['exit'], '10주선 이탈')
 
+    def test_n1_lock(self):
+        b = bt.Book(5, cost=0, add=0, exits='n1', lock=True)
+        C = {'A': card('A')}
+        self.run_days(b, [({}, C, ['A']), ({'A': (100, 111, 100, 110)}, C, [])])
+        self.assertEqual(b.pos['A']['stop'], b.pos['A']['tp1'])
+        self.assertAlmostEqual(b.pos['A']['sh'], b.pos['A']['base'] * .5)
+        self.run_days(b, [({'A': (109, 109, 105, 106)}, C, [])])
+        self.assertNotIn('A', b.pos)
+
 
 if __name__ == '__main__':
     unittest.main()
