@@ -399,11 +399,13 @@ class BookTest(unittest.TestCase):
         b = bt.Book(5, cost=0, add=0, exits='n1', lock=True)
         C = {'A': card('A')}
         self.run_days(b, [({}, C, ['A']), ({'A': (100, 111, 100, 110)}, C, [])])
+        self.assertLess(b.pos['A']['stop'], b.pos['A']['entry'])            # 1차만으로는 손절선 그대로
+        self.assertAlmostEqual(b.pos['A']['sh'], b.pos['A']['base'] * .5)
+        self.run_days(b, [({'A': (110, 130, 110, 125)}, C, [])])           # 2차 도달: 팔지 않고 손절선만 1차로
         self.assertEqual(b.pos['A']['stop'], b.pos['A']['tp1'])
         self.assertAlmostEqual(b.pos['A']['sh'], b.pos['A']['base'] * .5)
         self.run_days(b, [({'A': (109, 109, 105, 106)}, C, [])])
         self.assertNotIn('A', b.pos)
-
 
 if __name__ == '__main__':
     unittest.main()
