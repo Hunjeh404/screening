@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import FinanceDataReader as fdr
+import pandas as pd
 import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -68,6 +69,19 @@ def dart(path, **params):
 
 # 1) 상장 종목 목록 (보통주만, 스팩 제외)
 lst = fdr.StockListing('KRX')
+if lst['Marcap'].isna().mean() > .5:
+    # 장 시작 전에는 그날 목록에 시총·종가가 비어 있다 -> 같은 출처의 직전 거래일 목록을 쓴다
+    for back in range(1, 8):
+        day = (dt.date.today() - dt.timedelta(days=back)).isoformat()
+        try:
+            prev = pd.read_csv(f'https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache/refs/heads/master/data/listing/krx/{day}.csv',
+                               index_col=0, dtype={'Code': str, 'Dept': str, 'ChangeCode': str, 'MarketId': str})
+        except Exception:
+            continue
+        if prev['Marcap'].isna().mean() < .5:
+            print('상장 목록: 오늘 목록에 시총이 비어 있어', day, '목록 사용', flush=True)
+            lst = prev.reset_index(drop=True)
+            break
 lst = lst[lst['Market'].isin(['KOSPI', 'KOSDAQ', 'KOSDAQ GLOBAL'])]
 lst = lst[lst['Code'].str.endswith('0') & ~lst['Name'].str.contains('스팩')]
 lst = lst.dropna(subset=['Stocks', 'Marcap'])   # 신규 상장·거래정지 등으로 주식 수·시총이 비어 있는 종목은 제외
