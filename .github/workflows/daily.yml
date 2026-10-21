@@ -69,9 +69,9 @@ jobs:
         run: |
           set -o pipefail
           python -u scripts/fetch_kr.py 2>&1 | tee fetch_kr.log
-          python scripts/screen_kr.py
-          python scripts/sectors.py data/cache/kr docs/data_kr.json
-          bash scripts/publish_data.sh kr
+          python scripts/screen_kr.py 2>&1 | tee -a fetch_kr.log
+          python scripts/sectors.py data/cache/kr docs/data_kr.json 2>&1 | tee -a fetch_kr.log
+          bash scripts/publish_data.sh kr 2>&1 | tee -a fetch_kr.log
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
       - name: Korea failure detail
