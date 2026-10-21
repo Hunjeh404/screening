@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '0 22 * * 1-5'
   workflow_dispatch:
+    inputs:
+      market:   # 수동 실행 때 미국·한국만 따로 돌릴 수 있게
+        type: choice
+        options: [all, us, kr]
+        default: all
   push:
     branches: [main]
     paths:
@@ -49,7 +54,7 @@ jobs:
           restore-keys: cache-
       - name: US data and history
         id: us
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && inputs.market != 'kr'
         continue-on-error: true
         timeout-minutes: 35
         run: |
@@ -63,7 +68,7 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       - name: Korea data and history
         id: kr
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && inputs.market != 'us'
         continue-on-error: true
         timeout-minutes: 240
         run: |
@@ -90,7 +95,8 @@ jobs:
           US_RESULT: ${{ steps.us.outcome }}
           KR_RESULT: ${{ steps.kr.outcome }}
         run: |
-          if [ "$US_RESULT" != success ] || [ "$KR_RESULT" != success ]; then
+          ok() { [ "$1" = success ] || [ "$1" = skipped ]; }
+          if ! ok "$US_RESULT" || ! ok "$KR_RESULT"; then
             echo "::error::Market refresh incomplete: US=$US_RESULT KR=$KR_RESULT. Previously published data is preserved."
             exit 1
           fi
