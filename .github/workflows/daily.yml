@@ -76,7 +76,9 @@ jobs:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
       - name: Korea failure detail
         if: steps.kr.outcome == 'failure'
-        run: tail -n 15 fetch_kr.log 2>/dev/null | sed 's/^/::warning title=kr log::/' || true
+        run: |   # 알림은 단계당 10개까지만 보여서 한 개로 합친다
+          msg=$(tail -n 25 fetch_kr.log 2>/dev/null | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::warning title=kr log::$msg"
       - uses: actions/cache/save@v4
         if: always() && github.event_name != 'push'
         with:
