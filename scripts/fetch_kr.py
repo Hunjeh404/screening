@@ -70,6 +70,7 @@ def dart(path, **params):
 lst = fdr.StockListing('KRX')
 lst = lst[lst['Market'].isin(['KOSPI', 'KOSDAQ', 'KOSDAQ GLOBAL'])]
 lst = lst[lst['Code'].str.endswith('0') & ~lst['Name'].str.contains('스팩')]
+lst = lst.dropna(subset=['Stocks', 'Marcap'])   # 신규 상장·거래정지 등으로 주식 수·시총이 비어 있는 종목은 제외
 listing = {r.Code: {'name': r.Name, 'market': 'KOSDAQ' if 'KOSDAQ' in r.Market else 'KOSPI',
                     'shares': int(r.Stocks), 'marcap': int(r.Marcap)}
            for r in lst.itertuples()}
