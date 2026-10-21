@@ -74,6 +74,9 @@ jobs:
           bash scripts/publish_data.sh kr
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      - name: Korea failure detail
+        if: steps.kr.outcome == 'failure'
+        run: tail -n 15 fetch_kr.log 2>/dev/null | sed 's/^/::warning title=kr log::/' || true
       - uses: actions/cache/save@v4
         if: always() && github.event_name != 'push'
         with:
