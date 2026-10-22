@@ -446,6 +446,17 @@ class BookTest(unittest.TestCase):
         c2 = c.copy(); c2[-30:] = c2[-31] * .7          # 고점 대비 -30% -> 탈락
         f = bt.price_features(np.arange(n), c2 * 1.01, c2 * .99, c2, np.ones(n))
         self.assertEqual(f['tt'][-1], 0)
+    def test_monthly_contribution(self):
+        old = bt.CAL
+        bt.CAL = np.array([bt.day_int(d) for d in ('2020-01-24', '2020-01-27', '2020-01-28', '2020-02-25')])
+        try:
+            b = bt.Book(5, cost=0, seed=50, monthly=50)
+            self.run_days(b, [({}, {}, [])] * 4)
+            self.assertEqual(b.paid_in, 150)                                   # 1월 27일, 2월 25일 두 번
+            self.assertAlmostEqual(b.curve[-1], 150)
+            self.assertAlmostEqual(b.nav[-1], 1.0)                             # 현금만이면 좌수 가치 그대로
+        finally:
+            bt.CAL = old
 
 if __name__ == '__main__':
     unittest.main()

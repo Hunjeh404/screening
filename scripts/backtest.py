@@ -32,9 +32,12 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
-_V = {'c50t': ('지금 전략 (세후)', True, _X),
-      'stk': ('종목만·남는 돈 현금 (세후)', True, dict(_O, spy=False, tax=.22)),
-      'tq': ('TQQQ만·QQQ 200일선 매매 (세후)', True, dict(_O, slots=0, tax=.22))}
+_D = dict(seed=50, monthly=50, tax=.22, tax_ded=250)   # 50만원으로 시작, 매월 25일 50만원 추가, 양도세 22%·연 250만원 공제
+_V = {'d_now': ('지금 전략', True, dict(_P, **_D))}
+for e_ in ('TQQQ', 'SPY', 'QQQ'):
+    _V['d_' + e_] = (f'{e_} 적립(100%)', True, dict(_O, idx=e_, idx_ma=False, slots=0, **_D))
+    _V['d_' + e_ + 'ma'] = (f'{e_} 200일선 매매(100%)' + (' · QQQ 200일선' if e_ == 'TQQQ' else ''), True,
+                            dict(_O, idx=e_, slots=0, own_ma=e_ != 'TQQQ', **_D))
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -202,7 +205,9 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=(), own_ma=False):
+                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=(), own_ma=False, seed=None, monthly=0.0, tax_ded=0.0):
+        # seed·monthly: 시작 자금과 매월 25일(휴일이면 다음 거래일) 추가 입금(만원). tax_ded: 양도세 연 기본공제(만원)
+        self.seed, self.monthly, self.tax_ded, self.paid_in, self.flows, self.last_in = seed, monthly, tax_ded, 0.0, [], None
         self.own_ma = own_ma   # 200일선 매매를 QQQ 대신 보유 ETF 자기 200일선으로
         # max_age: 실적 공시 후 이 거래일 수가 지난 종목은 신규 매수 안 함. ex_sec: 이 섹터(야후 영문)는 신규 매수 안 함
         self.max_age, self.ex_sec = max_age, set(ex_sec)
@@ -253,6 +258,9 @@ class Book:
         self.slots, self.cost, self.first, self.add = slots, cost, first, add
         self.cash, self.pos, self.orders, self.closed, self.curve, self.invested = 1.0, {}, [], [], [], []
         self.pending, self.last_eq = {}, 1.0
+        if seed:   # 적립식: 단위(좌수)로 시간가중 수익률(nav)을 따로 기록
+            self.cash = self.last_eq = self.paid_in = self.units = float(seed)
+            self.flows, self.nav = [(0, -float(seed))], []
 
     def _tgt(self, s):
         """매수 후보의 손절·목표(카드 값 또는 바꾼 규칙). None이면 매수하지 않는다."""
@@ -305,11 +313,25 @@ class Book:
         self.cash += got
         self.gain_y += got - basis
 
+    def _contribute(self, k):
+        """매월 25일 이후 첫 거래일 시가 전에 입금"""
+        if not self.monthly:
+            return
+        d_ = day_str(CAL[k])
+        if int(d_[8:]) < 25 or d_[:7] == self.last_in:
+            return
+        self.last_in = d_[:7]
+        self.units += self.monthly / (self.last_eq / self.units)
+        self.cash += self.monthly
+        self.last_eq += self.monthly
+        self.paid_in += self.monthly
+        self.flows.append((k, -self.monthly))
+
     def _pay_tax(self, k):
         """해가 바뀐 첫 거래일 시가: 지난해 실현이익의 tax만큼 납부"""
         if not self.tax or k == 0 or day_str(CAL[k])[:4] == day_str(CAL[k - 1])[:4]:
             return
-        due, self.gain_y = max(self.gain_y, 0.0) * self.tax, 0.0
+        due, self.gain_y = max(self.gain_y - self.tax_ded, 0.0) * self.tax, 0.0
         if due > self.cash and self.spy_sh:
             op = self.spy_bar(k)[0]
             self._idx_sell((due - self.cash) / (op * (1 - self.cost)), op)
@@ -353,6 +375,7 @@ class Book:
     def morning(self, k, bar):
         """시가: 전날 신호 주문 체결(매도 먼저). 장중: 손절(항상), 목표가 처리(초강세 구간이면 쉰다)"""
         orders, self.orders = self.orders, []
+        self._contribute(k)
         self._pay_tax(k)
         for o in orders:
             if o['side'] == 'sell' and o['t'] in self.pos and bar(o['t']):
@@ -472,6 +495,8 @@ class Book:
         eq = self.cash + value + (self.spy_sh * self.spy_bar(k)[1] if self.spy else 0)
         self.last_eq = eq
         self.curve.append(eq)
+        if self.seed:
+            self.nav.append(eq / self.units)
         self.invested.append(value / eq if eq else 0)
         eq -= sum(c['sh'] * c['last'] for c in self.core)   # 매수 비중은 묻어 둔 물량을 뺀 자산 기준
         signal = lambda t: bool(cards.get(t) and not cards[t]['hunbot'].get('sc')
@@ -635,7 +660,7 @@ def yearly(curve, days):
 def report(books, spy, days):
     pct = lambda x: f'{x * 100:+.1f}%'
     rows, years, lines = [], {}, []
-    series = {name: b.curve for name, b in books.items()}
+    series = {name: (b.nav if b.seed else b.curve) for name, b in books.items()}
     series['SPY 보유'] = list(spy)
     for name, curve in series.items():
         st = stats(curve, days)
@@ -650,7 +675,17 @@ def report(books, spy, days):
         per = {'13~19 CAGR': pct(a_['CAGR']), '13~19 MDD': pct(a_['MDD']), '13~19 샤프': f"{a_['샤프']:.2f}",
                '20~26 CAGR': pct(b_['CAGR']), '20~26 MDD': pct(b_['MDD']), '20~26 샤프': f"{b_['샤프']:.2f}"}
         if b and b.tax:
-            extra['낸 세금(시작자산=1)'] = f'{b.tax_paid:.2f}'
+            extra['낸 세금(시작자산=1)' if not b.seed else '낸 세금(만원)'] = f'{b.tax_paid:,.0f}' if b.seed else f'{b.tax_paid:.2f}'
+        if b and b.seed:   # 적립식: 넣은 돈, 최종 평가액, 돈 가중 연수익률(IRR)
+            fl = b.flows + [(len(days) - 1, b.curve[-1])]
+            yr = lambda k: (days[k] - days[0]) / 365.25
+            npv = lambda r: sum(v / (1 + r) ** yr(k) for k, v in fl)
+            lo_, hi_ = -.99, 5.0
+            for _ in range(200):
+                mid = (lo_ + hi_) / 2
+                lo_, hi_ = (mid, hi_) if npv(mid) > 0 else (lo_, mid)
+            extra.update({'넣은 돈(만원)': f'{b.paid_in:,.0f}', '최종 평가(만원)': f'{b.curve[-1]:,.0f}',
+                          '돈 가중 연수익률(IRR)': pct(mid)})
         row = {'구분': name, '총수익률': pct(st['총수익률']), 'CAGR': pct(st['CAGR']), 'MDD': pct(st['MDD']),
                '샤프': f"{st['샤프']:.2f}", **per, **extra}
         rows.append(row)
@@ -723,7 +758,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>2차 목표 = 가치 회복 여력과 손절률 3배 중 큰 값(1차+7%p 없음), 2차가 1차 이하면 매수하지 않음. 세후: 해외주식 양도세 22%(공제 무시)를 매년 실현손익 합계가 이익일 때 다음 해 첫 거래일에 납부, 마지막 해와 미실현 이익의 세금은 빠져 있음. 예수금 ETF 비교(세후): 종목 매매는 지금 규칙 그대로, 예수금은 TQQQ 대신 SPY·QQQ·SCHD를 총자산의 50%까지(현금 먼저 사용). '200일선 매매'는 그 ETF 자기 종가가 200일선 아래로 마감하면 다음 날 시가 전량 매도, 위로 마감하면 다음 날 시가 매수. '존버'는 200일선 무시하고 계속 보유. 지수 ETF는 배당 재투자(원천징수 15% 차감) 반영.</li>
+<li>적립식 비교(만원 단위): 50만원으로 시작해 매월 25일(휴일이면 다음 거래일) 50만원 입금. 양도세 22%, 매년 실현이익에서 250만원 공제 후 다음 해 첫 거래일 납부. CAGR·MDD·샤프는 입금 효과를 뺀 시간가중 수익률(좌수 기준), IRR은 입금 시점까지 반영한 돈 가중 수익률. 적립은 입금 다음 날 시가에 전액 매수 후 계속 보유, 200일선 매매는 TQQQ는 QQQ 200일선, SPY·QQQ는 자기 200일선 기준. 지금 전략의 매매 규칙은 그대로(종목 20%+▲10%, TQQQ 최대 50%). 지수 ETF 배당은 15% 원천징수 후 재투자.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>
