@@ -32,10 +32,9 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
-_V = {'c50t': ('지금 전략 TQQQ·QQQ 200일선 (세후)', True, _X)}
-for e_ in ('SPY', 'QQQ', 'SCHD'):
-    _V[e_ + '_ma'] = (f'{e_}·자기 200일선 매매 (세후)', True, dict(_X, idx=e_, own_ma=True))
-    _V[e_ + '_hold'] = (f'{e_}·존버 (세후)', True, dict(_X, idx=e_, idx_ma=False))
+_V = {'c50t': ('지금 전략 (세후)', True, _X),
+      'stk': ('종목만·남는 돈 현금 (세후)', True, dict(_O, spy=False, tax=.22)),
+      'tq': ('TQQQ만·QQQ 200일선 매매 (세후)', True, dict(_O, slots=0, tax=.22))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -685,6 +684,22 @@ def report(books, spy, days):
     allkeys = list(dict.fromkeys(k for r in rows for k in r))
     table = '<tr>' + ''.join(f'<th>{k}</th>' for k in allkeys) + '</tr>' + ''.join(
         '<tr>' + ''.join(f'<td>{r.get(k, "")}</td>' for k in allkeys) + '</tr>' for r in rows)
+    # 하락 구간별 수익률·구간 내 최대 낙폭
+    WIN = (('2015-07-20', '2016-02-11', '2015~16 중국·유가'), ('2018-10-01', '2018-12-24', '2018 4분기'),
+           ('2020-02-19', '2020-03-23', '2020 코로나'), ('2022-01-03', '2022-12-30', '2022 하락장'),
+           ('2025-02-19', '2025-04-08', '2025 관세 급락'))
+    wrows = []
+    for a_, b_, lab in WIN:
+        ia, ib = (int(np.searchsorted(days, day_int(x))) for x in (a_, b_))
+        r_ = {'구간': f'{lab} ({a_}~{b_})'}
+        for n_, cv in series.items():
+            seg = np.array(cv[ia:ib + 1])
+            r_[n_] = f'{pct(seg[-1] / seg[0] - 1)} (MDD {pct((seg / np.maximum.accumulate(seg) - 1).min())})'
+        wrows.append(r_)
+        lines.append(' · '.join(f'{k} {v}' for k, v in r_.items()))
+    wkeys = list(wrows[0])
+    wtable = '<tr>' + ''.join(f'<th>{k}</th>' for k in wkeys) + '</tr>' + ''.join(
+        '<tr>' + ''.join(f'<td>{r[k]}</td>' for k in wkeys) + '</tr>' for r in wrows)
     ys = sorted({y for v in years.values() for y in v})
     ytable = '<tr><th>연도</th>' + ''.join(f'<th>{n}</th>' for n in years) + '</tr>' + ''.join(
         f'<tr><td>{y}</td>' + ''.join(f'<td>{pct(years[n].get(y, 0))}</td>' for n in years) + '</tr>' for y in ys)
@@ -701,6 +716,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <h1>실적 신고가 전략 백테스트 (미국)</h1><p style="color:var(--sub)">{day_str(days[0])} ~ {day_str(days[-1])} · 편도 비용 {COST * 100:.1f}% · 배당 미반영</p>
 <div class="box"><table>{table}</table></div>
 <h2>자산 곡선 (로그 축)</h2><div class="box"><div class="legend">{legend}</div><svg viewBox="0 0 {W} {H}">{"".join(paths)}</svg></div>
+<h2>하락 구간</h2><div class="box"><table>{wtable}</table></div>
 <h2>연도별 수익률</h2><div class="box"><table>{ytable}</table></div>
 <h2>규칙과 한계</h2><ul>
 <li>우수전략: 최대 5종목, 이평선 조건 사용, 공시지연 미사용. 매수 카드에 새로 오르면 다음 날 시가에 20%, 매수 카드 상태에서 훈봇 ▲가 뜨면 10% 추가(같은 날이면 30%). 같은 날 여러 종목이면 예상 손실률이 작은 순, 1차 목표 수익률이 높은 순.</li>
