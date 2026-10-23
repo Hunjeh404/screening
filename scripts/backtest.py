@@ -33,7 +33,11 @@ _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
 _V = {'c50t': ('지금 전략 · 다음 날 시가 체결 (세후)', True, _X),
-      'close': ('지금 전략 · 신호 당일 종가 체결 (세후)', True, dict(_X, exec_close=True))}
+      'close': ('지금 전략 · 신호 당일 종가 체결 (세후)', True, dict(_X, exec_close=True)),
+      'tq_o': ('TQQQ만 · 다음 날 시가', True, dict(_O, slots=0, tax=.22)),
+      'tq_c': ('TQQQ만 · 당일 종가', True, dict(_O, slots=0, tax=.22, exec_close=True)),
+      'st_o': ('종목만 · 다음 날 시가', True, dict(_O, spy=False, tax=.22)),
+      'st_c': ('종목만 · 당일 종가', True, dict(_O, spy=False, tax=.22, exec_close=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
