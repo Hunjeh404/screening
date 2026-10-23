@@ -32,12 +32,8 @@ _O = dict(_T, idx_open=True)
 _R = dict(first=.15, add=.075, slots=6)
 _P = dict(_O, idx_cap=.5)
 _X = dict(_P, tax=.22)   # 세후
-_D = dict(seed=50, monthly=50, tax=.22, tax_ded=250)   # 50만원으로 시작, 매월 25일 50만원 추가, 양도세 22%·연 250만원 공제
-_V = {'d_now': ('지금 전략', True, dict(_P, **_D))}
-for e_ in ('TQQQ', 'SPY', 'QQQ'):
-    _V['d_' + e_] = (f'{e_} 적립(100%)', True, dict(_O, idx=e_, idx_ma=False, slots=0, **_D))
-    _V['d_' + e_ + 'ma'] = (f'{e_} 200일선 매매(100%)' + (' · QQQ 200일선' if e_ == 'TQQQ' else ''), True,
-                            dict(_O, idx=e_, slots=0, own_ma=e_ != 'TQQQ', **_D))
+_V = {'c50t': ('지금 전략 · 다음 날 시가 체결 (세후)', True, _X),
+      'close': ('지금 전략 · 신호 당일 종가 체결 (세후)', True, dict(_X, exec_close=True))}
 STRATEGIES = {k: v for k, v in _V.items()}
 BE = {'be25': .25, 'be0': 0.0}   # 1차 목표 도달 시 익절 비율(처음 물량 대비)
 PLANS = {'n1': (('t1_done', 't1', .5, '1차', None, 'now'),),
@@ -205,7 +201,8 @@ class Book:
     def __init__(self, slots=5, ts=True, cost=COST, first=.2, add=.1, exits=None, entry='open', cap=5.0,
                  pause=True, regime=False, breakeven=False, spy=False, card_lv=None, idx='SPY', idx_ma=False,
                  keep=0.0, idx_open=False, card_px=False, sector_rank=False, idx_cap=None, idx_buf=False, ta_mode=None,
-                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=(), own_ma=False, seed=None, monthly=0.0, tax_ded=0.0):
+                 only_ta=False, fund='cash', tgt=None, wk=None, lock=False, tax=0.0, no_gen=False, earn=False, avg_stop=False, max_age=None, ex_sec=(), own_ma=False, seed=None, monthly=0.0, tax_ded=0.0, exec_close=False):
+        self.exec_close = exec_close   # 종목 매수·매도카드·지수 매매를 신호 당일 종가에 (손절·TS는 장중 그대로)
         # seed·monthly: 시작 자금과 매월 25일(휴일이면 다음 거래일) 추가 입금(만원). tax_ded: 양도세 연 기본공제(만원)
         self.seed, self.monthly, self.tax_ded, self.paid_in, self.flows, self.last_in = seed, monthly, tax_ded, 0.0, [], None
         self.own_ma = own_ma   # 200일선 매매를 QQQ 대신 보유 ETF 자기 200일선으로
@@ -372,14 +369,11 @@ class Book:
                            'trails': [], 'events': [o.get('label') or ('매수+추가' if o['added'] else '매수')],
                            'tag': o.get('tag', {}), 'nostop': o.get('nostop', False)}
 
-    def morning(self, k, bar):
-        """시가: 전날 신호 주문 체결(매도 먼저). 장중: 손절(항상), 목표가 처리(초강세 구간이면 쉰다)"""
-        orders, self.orders = self.orders, []
-        self._contribute(k)
-        self._pay_tax(k)
+    def _fill(self, orders, k, px, ipx, kd):
+        """주문 체결(매도 먼저, 모자란 돈은 지수 매도, 매수), 이어서 kd일 판정으로 지수 매매. px(t): 체결가, ipx: 지수 체결가"""
         for o in orders:
-            if o['side'] == 'sell' and o['t'] in self.pos and bar(o['t']):
-                t, op, p = o['t'], bar(o['t'])[0], self.pos[o['t']]
+            if o['side'] == 'sell' and o['t'] in self.pos and px(o['t']) is not None:
+                t, op, p = o['t'], px(o['t']), self.pos[o['t']]
                 left = min(p['base'] * self.keep, p['sh'])
                 if left and p['proceeds'] + p['sh'] * op * (1 - self.cost) > p['spent']:
                     self._sell(t, p['sh'] - left, op, k, o['why'] + '·10% 보유')
@@ -390,22 +384,30 @@ class Book:
                     del self.pos[t]
                 else:
                     self._sell(t, float('inf'), op, k, o['why'])
-        need = sum(o['value'] for o in orders if o['side'] == 'buy' and bar(o['t']))
+        need = sum(o['value'] for o in orders if o['side'] == 'buy' and px(o['t']) is not None)
         if self.spy and self.spy_sh and (need > self.cash or (self.fund == 'tqqq' and need > 0)):
-            op = self.spy_bar(k)[0]
+            op = ipx
             self._idx_sell((need if self.fund == 'tqqq' else need - self.cash) / (op * (1 - self.cost)), op)
         for o in orders:
-            if o['side'] == 'buy' and bar(o['t']):
-                self._buy(o, bar(o['t'])[0], k)
-        if self.spy and self.idx_open and k > 0:   # 전날 종가 기준 판정으로 시가에 지수 매매
-            op = self.spy_bar(k)[0]
-            if self.idx_ma and not self.idx_ok(k - 1):
+            if o['side'] == 'buy' and px(o['t']) is not None:
+                self._buy(o, px(o['t']), k)
+        if self.spy and self.idx_open and kd >= 0:   # kd일 종가 기준 판정으로 지수 매매
+            op = ipx
+            if self.idx_ma and not self.idx_ok(kd):
                 self._idx_sell(self.spy_sh, op)
             elif self.cash > 0:
                 held = sum(p['sh'] * p['last'] for p in self.pos.values()) if self.fund == 'tqqq' else 0.0
                 amt = self.cash if self.idx_cap is None else min(self.cash, max(0.0, self.idx_cap * self.last_eq - held - self.spy_sh * op))
                 self._idx_buy(amt, op)
                 self.cash -= amt
+
+    def morning(self, k, bar):
+        """시가: 전날 신호 주문 체결(매도 먼저). 장중: 손절(항상), 목표가 처리(초강세 구간이면 쉰다)"""
+        orders, self.orders = self.orders, []
+        self._contribute(k)
+        self._pay_tax(k)
+        if not self.exec_close:
+            self._fill(orders, k, lambda t: bar(t)[0] if bar(t) else None, self.spy_bar(k)[0] if self.spy else None, k - 1)
         for t in list(self.pending):   # 지정가: 장중 저가가 지정가에 닿으면 그 가격(갭 하락이면 시가)
             o, b = self.pending[t], bar(t)
             if b and b[2] <= o['limit']:
@@ -603,6 +605,9 @@ class Book:
                     'levels': {'stop': stop, 'tp1': c * (1 + m['target_1'] / 100), 'tp2': c * (1 + m['target_2'] / 100),
                                'trail': max(m['expected_loss'], -self.cap)}}
         self.orders = orders
+        if self.exec_close:   # 신호 당일 종가에 바로 체결
+            self.orders = []
+            self._fill(orders, k, lambda t: bar(t)[3] if bar(t) else None, self.spy_bar(k)[1] if self.spy else None, k)
 
 
 # ---------- 하루치 카드 ----------
@@ -758,7 +763,7 @@ li{{color:var(--sub)}} svg{{width:100%;height:auto}}
 <li>손절: 매수가에 예상 손실률을 적용한 고정 가격이 항상 걸려 있음. 1차 목표가에 물량 50%, 2차 목표가에 25%를 트레일링 스탑(최고가 대비 예상 손실률)으로 매도, 나머지는 매도 카드로 매도.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 20%, ▲면 10% 추가. 1차 목표가에 50%, 2차 목표가에 25% 트레일링 스탑, 나머지는 매도 카드. 강세(훈봇 초강세) 구간에도 트레일링 스탑을 쉬지 않음. 남는 돈은 TQQQ, QQQ가 200일선 아래면 현금.</li>
 <li>우수전략: 최대 5종목, 매수 카드에 오르면 다음 날 시가 20%, ▲면 10% 추가. 손절선 항상, 1차 목표가 50%·2차 25% 트레일링 스탑(폭=손절률), 나머지는 매도 카드. 남는 돈 지수는 전날 종가 판정으로 다음 날 시가에 매매, 200일선은 QQQ(나스닥100) 기준.</li>
-<li>적립식 비교(만원 단위): 50만원으로 시작해 매월 25일(휴일이면 다음 거래일) 50만원 입금. 양도세 22%, 매년 실현이익에서 250만원 공제 후 다음 해 첫 거래일 납부. CAGR·MDD·샤프는 입금 효과를 뺀 시간가중 수익률(좌수 기준), IRR은 입금 시점까지 반영한 돈 가중 수익률. 적립은 입금 다음 날 시가에 전액 매수 후 계속 보유, 200일선 매매는 TQQQ는 QQQ 200일선, SPY·QQQ는 자기 200일선 기준. 지금 전략의 매매 규칙은 그대로(종목 20%+▲10%, TQQQ 최대 50%). 지수 ETF 배당은 15% 원천징수 후 재투자.</li>
+<li>체결 시점 비교: '당일 종가 체결'은 종목 매수(▲ 추가 포함)·매도카드 매도·TQQQ 200일선 매매·남는 돈 TQQQ 매수를 신호가 난 날 종가에 바로 체결한다고 가정(실제로는 미국 장 마감 직전에 신호를 확인해야 가능). 손절·트레일링 스탑은 둘 다 장중 예약매도로 같음.</li>
 
 <li>남는 돈 SPY·QQQ·TQQQ: 남는 현금은 그날 종가에 지수 ETF를 사 두고, 매수 자금이 모자라면 다음 날 시가에 필요한 만큼 팖(편도 비용 동일). 200일선 위만: QQQ 종가가 200일선 아래면 그날 종가에 지수를 팔고 현금 보유, 다시 위로 오르면 종가에 매수. TQQQ도 QQQ 200일선 기준.</li>
 <li>매수 카드 신호는 다음 날 시가, 목표가·손절은 장중 고가·저가에 닿으면 그 가격(갭이면 시가)에 체결. 같은 날 손절과 목표가가 겹치면 손절로 처리.</li>

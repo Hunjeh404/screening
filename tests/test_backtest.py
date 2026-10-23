@@ -457,6 +457,13 @@ class BookTest(unittest.TestCase):
             self.assertAlmostEqual(b.nav[-1], 1.0)                             # 현금만이면 좌수 가치 그대로
         finally:
             bt.CAL = old
+    def test_exec_close(self):
+        b = bt.Book(5, cost=0, add=0, exec_close=True)
+        self.run_days(b, [({'A': (90, 101, 89, 100)}, {'A': card('A')}, ['A'])])
+        self.assertEqual(b.pos['A']['entry'], 100)                         # 신호 당일 종가에 매수
+        self.run_days(b, [({'A': (100, 101, 99, 99)}, {'A': card('A', state='SELL')}, [])])
+        self.assertNotIn('A', b.pos)
+        self.assertAlmostEqual(b.closed[0]['ret'], -.01)                   # 매도카드 당일 종가 99
 
 if __name__ == '__main__':
     unittest.main()
