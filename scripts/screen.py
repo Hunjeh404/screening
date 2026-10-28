@@ -53,6 +53,7 @@ if ua:
     print('::notice title=china::중국계 제외', len(cn), '종목:', ', '.join(f'{t}({w})' for t, w in sorted(cn.items())), flush=True)
 else:
     print('::warning::SEC_USER_AGENT가 없어 중국계 확인을 건너뜀')
+cn.update(china.manual('us'))   # 직접 지정한 종목
 stocks = [s for s in stocks if s['code'] not in cn]
 
 meta = {'generated': dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d %H:%M'),

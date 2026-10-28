@@ -14,6 +14,12 @@ CN_CODES = {'F4': '중국', 'K3': '홍콩', 'N5': '마카오'}   # EDGAR 국가 
 PAT = re.compile(r'china|chinese|hong\s*kong|macau|macao|beijing|shanghai|shenzhen|guangzhou|'
                  r'中国|中國|香港|澳門|澳门|北京|上海|深圳|广州|廣州|중국|홍콩|차이나|마카오|베이징|상하이|광저우', re.I)
 DAYS = 30
+MANUAL = os.path.join(os.path.dirname(__file__), 'cn_exclude.json')
+
+
+def manual(market):
+    """직접 지정한 제외 종목 {코드: 사유}"""
+    return json.load(open(MANUAL, encoding='utf-8')).get(market, {}) if os.path.exists(MANUAL) else {}
 
 
 def us_reason(sub):
