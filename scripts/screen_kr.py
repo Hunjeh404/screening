@@ -54,7 +54,7 @@ key = os.environ.get('DART_API_KEY')
 cn = {}
 if key:
     cn = china.kr_flags([s['code'] for s in stocks if s['record'] or s['code'] in held], corp, f'{CACHE}/cn_kr.json', key)
-    print('중국계 제외', len(cn), '종목:', ', '.join(f'{c}({w})' for c, w in sorted(cn.items())), flush=True)
+    print('::notice title=china::중국계 제외', len(cn), '종목:', ', '.join(f'{c}({w})' for c, w in sorted(cn.items())), flush=True)
 else:
     print('::warning::DART_API_KEY가 없어 중국계 확인을 건너뜀')
 stocks = [s for s in stocks if s['code'] not in cn]

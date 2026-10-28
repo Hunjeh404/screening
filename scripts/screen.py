@@ -50,7 +50,7 @@ cn = {}
 if ua:
     check = {ciks[s['code']]: s['code'] for s in stocks if s['record'] or s['code'] in held}
     cn = {check[c]: why for c, why in china.us_flags(list(check), f'{CACHE}/cn_us.json', ua).items()}
-    print('중국계 제외', len(cn), '종목:', ', '.join(f'{t}({w})' for t, w in sorted(cn.items())), flush=True)
+    print('::notice title=china::중국계 제외', len(cn), '종목:', ', '.join(f'{t}({w})' for t, w in sorted(cn.items())), flush=True)
 else:
     print('::warning::SEC_USER_AGENT가 없어 중국계 확인을 건너뜀')
 stocks = [s for s in stocks if s['code'] not in cn]
