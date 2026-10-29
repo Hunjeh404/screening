@@ -1,7 +1,5 @@
 name: daily-screen
 on:
-  schedule:
-    - cron: '0 22 * * 1-5'
   workflow_dispatch:
     inputs:
       market:   # 수동 실행 때 미국·한국만 따로 돌릴 수 있게
