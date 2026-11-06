@@ -15,6 +15,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4   # 일일 갱신 캐시(재무·시세)를 쓰는 점검 스크립트용
+        with:
+          path: data/cache
+          key: cache-none
+          restore-keys: cache-
       - run: python -u scripts/${{ inputs.script }}
       - name: Show result
         run: |
