@@ -232,7 +232,7 @@ def weekly(dates, closes, vols, keep=105):
 
 def price_metrics(dates, closes, vols=None, highs=None, lows=None):
     n = len(closes)
-    if n < 60:
+    if n < 60 or 0 in closes:
         return None
     rets = [closes[i] / closes[i - 1] - 1 for i in range(1, n)]
     ma = lambda w: sum(closes[-w:]) / w if n >= w else None
